@@ -1,6 +1,6 @@
 # Implementační plán: opravy spouštěčů a izolace procesů (A4, A5, A6)
 
-Datum: 14. 11. 2026. Verze plánu: 1. Stav: **L0 až L7 implementováno 15. 11. 2026, necommitnuto; z L8 zbývá ruční zkouška oken s nahrávkou, průchod v hostiteli a CI**.
+Datum: 14. 11. 2026. Verze plánu: 1. Stav: **L0 až L7 implementováno 15. 11. 2026 (commit `c688bbb`); z L8 zbývá ruční zkouška oken s nahrávkou, průchod v hostiteli a CI**.
 
 Průběh realizace 15. 11. 2026: R1 až R5 potvrzeny uživatelem („Ano, implementuj“). L0: 186 dotčených testů prošlo před změnou. L1 a L5 provedli dva subagenti Opus 5.5 (úsilí high), diff obou jsem přečetl a testy spustil znovu. Subagent L1 se zastavil u třetího testu: regulární výraz ze zadání by zachytil i nová volání `python_command`; pojistný test proto hlídá výběr interpretu (`gui_python(`, `console_python(`, `sys.executable,`) mimo `platform/process.py`. L2, L3, L4 a L6 jsem dělal v hlavní relaci. Odchylky od plánu: L3, L4 a L6 vznikly najednou, protože mění tytéž dva skripty; pole `root` dostala i chyba `ENVIRONMENT_INVALID` z `host/readiness.py` a z `host/cli.py`, nejen z bootstrapu; `launch.sh` v Git Bashi vypisuje cesty ve tvaru `D:/…` (přes `cygpath -m`), který berou Bash i nástroje Windows. L8 body 1 a 3: `ruff check` čistý, celá sada jednotkových testů na Windows prošla (1137 testů); všechny čtyři pokusy z revize prošly proti opraveným skriptům, navíc pomocné procesy háku myši a UI Automation nastartovaly s `-I`. Výsledky jsou v tabulce „Stav po opravách“ v [revizi](watch-me-review-2026-11-14.md).
 

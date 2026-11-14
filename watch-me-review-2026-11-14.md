@@ -8,7 +8,7 @@ Předchozí revize `watch-me-review-2026-11-13.md` je o den starší. Co z ní v
 
 ## Stav po opravách (15. 11. 2026)
 
-Podle [plánu oprav spouštěčů](implementation-plan-launcher-fixes.md). Změny jsou v pracovním stromu, necommitnuté.
+Podle [plánu oprav spouštěčů](implementation-plan-launcher-fixes.md). Změny jsou v commitu `c688bbb`.
 
 | Nález | Stav | Co se změnilo |
 | --- | --- | --- |
