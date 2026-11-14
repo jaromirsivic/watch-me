@@ -3105,21 +3105,37 @@ class EditorWindow(QMainWindow):
         if recording is not None:
             self.timeline.set_transcription("transcribing", self._arrow_ms(recording), eta)
             self._update_status()
-        if self.recording_session == session_id:
-            if now - self._session_progress_at >= SESSION_PROGRESS_INTERVAL_S:
-                self._session_progress_at = now
-                eta_text = f" (ETA: {format_eta(eta)})" if eta is not None else ""
-                try:
-                    update_recording_session_progress(
-                        SessionPaths(self.config.recording_folder, session_id),
-                        fraction,
-                        f"Watch Me Editor open; transcribing {int(fraction * 100)} %"
-                        f"{eta_text} (waiting for Process).",
-                    )
-                except OSError as exc:
-                    log.debug("progress not written to state.json: %s", exc)
+        if (
+            self.recording_session == session_id
+            and now - self._session_progress_at >= SESSION_PROGRESS_INTERVAL_S
+        ):
+            self._session_progress_at = now
+            eta_text = f" (ETA: {format_eta(eta)})" if eta is not None else ""
+            self._report_session_transcription(
+                session_id,
+                fraction,
+                f"Watch Me Editor open; transcribing {int(fraction * 100)} %"
+                f"{eta_text} (waiting for Process).",
+            )
+
+    def _report_session_transcription(self, session_id: str, fraction: float, message: str) -> None:
+        """Tell the agent waiting on the recording session (``state.json``) how the
+        transcription stands; other recordings have no agent waiting for them."""
+        if self.recording_session != session_id:
+            return
+        try:
+            update_recording_session_progress(
+                SessionPaths(self.config.recording_folder, session_id), fraction, message
+            )
+        except OSError as exc:
+            log.debug("progress not written to state.json: %s", exc)
 
     def _on_transcription_finished(self, session_id: str, done: object) -> None:
+        # The progress events are throttled and the last one may be far below 100 %:
+        # without this the agent would keep seeing "transcribing 73 %" until Process.
+        self._report_session_transcription(
+            session_id, 1.0, "Watch Me Editor open; transcription complete (waiting for Process)."
+        )
         self.list_view.set_activity(session_id, None)
         self._transcription_fraction.pop(session_id, None)
         self._transcription_origin.pop(session_id, None)
@@ -3145,6 +3161,12 @@ class EditorWindow(QMainWindow):
         self.transcription_changed.emit(session_id)
 
     def _on_transcription_failed(self, session_id: str, message: str) -> None:
+        self._report_session_transcription(
+            session_id,
+            self._transcription_fraction.get(session_id, 0.0),
+            f"Watch Me Editor open; transcription failed: {message} "
+            "(the user can retry it in the editor; waiting for Process).",
+        )
         self.list_view.set_activity(session_id, None)
         self._transcription_failed[session_id] = message
         self._transcription_fraction.pop(session_id, None)

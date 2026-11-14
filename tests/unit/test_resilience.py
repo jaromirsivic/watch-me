@@ -420,6 +420,33 @@ def test_process_waits_for_the_transcript_of_the_awaited_recording(qtbot, tmp_pa
     assert read_state(awaited.state_path).status is Status.PROCESSED
 
 
+def test_finished_transcription_reaches_the_waiting_agent(qtbot, tmp_path: Path, monkeypatch):
+    """The progress events reach state.json at most every few seconds; the end of the
+    transcription must be written even when another recording is shown."""
+    make_recording(tmp_path, OLDER, first_text="older one")
+    _pending(tmp_path, NEWEST)
+    session = _editing_session(tmp_path, NEWEST)
+    window = EditorWindow(
+        Config(recording_folder=tmp_path), session_id=OLDER, recording_session=NEWEST
+    )
+    qtbot.addWidget(window)
+    window.transcription.start = lambda _recording: False  # no worker in this test
+    window.show()
+    _wait_loaded(qtbot, window, OLDER)
+    clock = {"now": 1000.0}
+    monkeypatch.setattr("watch_me.editor.window.time.monotonic", lambda: clock["now"])
+    window._on_transcription_progress(NEWEST, 0.73, 55000)
+    clock["now"] += 1.0
+    window._on_transcription_progress(NEWEST, 0.95, 70000)  # throttled: not written
+    state = read_state(session.state_path)
+    assert state.progress == pytest.approx(0.73) and "transcribing 73 %" in state.message
+    window._on_transcription_finished(NEWEST, {"event": "done"})
+    state = read_state(session.state_path)
+    assert state.status is Status.EDITING  # the agent still waits for Process
+    assert state.progress == pytest.approx(1.0)
+    assert "transcription complete" in state.message and "%" not in state.message
+
+
 def test_failed_transcription_can_be_retried_without_closing(qtbot, tmp_path: Path):
     _pending(tmp_path, NEWEST)
     session = _editing_session(tmp_path, NEWEST)
@@ -431,6 +458,8 @@ def test_failed_transcription_can_be_retried_without_closing(qtbot, tmp_path: Pa
     _wait_loaded(qtbot, window, NEWEST)
     assert started == [NEWEST] and window.retry_transcription_button.isHidden()
     window._on_transcription_failed(NEWEST, "whisper model not found")
+    state = read_state(session.state_path)
+    assert "transcription failed: whisper model not found" in state.message  # the agent learns it
     assert not window.retry_transcription_button.isHidden()
     assert "whisper model not found" in window.retry_transcription_button.toolTip()
     window.retry_transcription_button.click()
