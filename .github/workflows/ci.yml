@@ -1,0 +1,113 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    name: ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    env:
+      QT_QPA_PLATFORM: offscreen
+      UV_PYTHON: "3.12"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Linux packages (PortAudio, X11, Qt xcb, Xvfb)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libportaudio2 xvfb openbox x11-utils ffmpeg \
+            libxcb-cursor0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-randr0 \
+            libxcb-render-util0 libxcb-shape0 libxcb-xfixes0 libxcb-xkb1 libxcb-xinerama0 \
+            libxkbcommon-x11-0 libxkbcommon0 libegl1 libgl1 libopengl0 libglib2.0-0 \
+            libfontconfig1 libdbus-1-3
+
+      - name: Install dependencies
+        run: uv sync --locked --all-groups
+
+      - name: Lint
+        run: uv run ruff check src tests
+
+      - name: Unit tests
+        run: uv run pytest tests/unit -q -p no:cacheprovider
+
+      - name: Platform smoke (Windows)
+        if: runner.os == 'Windows'
+        shell: bash
+        env:
+          WM_REC: ${{ runner.temp }}/wm-rec
+        run: |
+          uv run watch-me version
+          uv run watch-me screens
+          uv run watch-me record --seconds 1 --no-audio --folder "$WM_REC"
+          uv run python scripts/ci_report.py "$WM_REC" windows
+
+      - name: Platform smoke (macOS)
+        if: runner.os == 'macOS'
+        env:
+          WM_REC: ${{ runner.temp }}/wm-rec
+        run: |
+          uv run watch-me version
+          uv run watch-me screens
+          uv run watch-me record --seconds 1 --no-audio --folder "$WM_REC"
+          uv run python scripts/ci_report.py "$WM_REC" macos
+          uv run watch-me doctor > "$WM_REC/doctor.json" || true
+          echo "::notice title=Watch Me doctor macos::$(head -c 3800 "$WM_REC/doctor.json")"
+
+      - name: Overlay capture test (macOS, real display)
+        if: runner.os == 'macOS'
+        env:
+          QT_QPA_PLATFORM: cocoa
+          WATCH_ME_INTEGRATION: "1"
+          WM_REC: ${{ runner.temp }}/wm-rec
+        run: |
+          set +e
+          uv run pytest tests/integration/test_overlay_capture.py -q -p no:cacheprovider -x 2>&1 | tee "$WM_REC/overlay-macos.log"
+          code=${PIPESTATUS[0]}
+          echo "::notice title=Overlay capture macos (exit $code)::$(tail -c 3800 "$WM_REC/overlay-macos.log")"
+          exit $code
+
+      - name: Platform smoke (Linux, X11 via Xvfb)
+        if: runner.os == 'Linux'
+        env:
+          QT_QPA_PLATFORM: xcb
+          XDG_SESSION_TYPE: x11
+          QT_DEBUG_PLUGINS: "0"
+          WM_REC: ${{ runner.temp }}/wm-rec
+        run: |
+          export DISPLAY=:99
+          Xvfb :99 -screen 0 1600x900x24 +extension RANDR >/tmp/xvfb.log 2>&1 &
+          sleep 1
+          openbox >/tmp/openbox.log 2>&1 &
+          sleep 0.5
+          uv run watch-me version
+          uv run watch-me screens
+          uv run watch-me record --seconds 1 --no-audio --folder "$WM_REC"
+          uv run python scripts/ci_report.py "$WM_REC" linux
+          set +e
+          WATCH_ME_INTEGRATION=1 uv run pytest tests/integration/test_overlay_capture.py -q -p no:cacheprovider -x 2>&1 | tee "$WM_REC/overlay-linux.log"
+          code=${PIPESTATUS[0]}
+          echo "::notice title=Overlay capture linux (exit $code)::$(tail -c 3800 "$WM_REC/overlay-linux.log")"
+          exit $code
+
+      - name: Upload smoke recording
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: smoke-${{ matrix.os }}
+          path: ${{ runner.temp }}/wm-rec
+          if-no-files-found: ignore
+          retention-days: 3

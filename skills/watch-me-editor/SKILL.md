@@ -1,0 +1,140 @@
+---
+name: watch-me-editor
+description: Open the Watch Me Editor, a simple cutting room for recordings made with Watch Me (list of recordings, preview with subtitles, timeline per screen, crop start/end, Render to MP4 + SRT at 24 fps), or export a recording to MP4 without the window. Use when the user says "Watch Me Editor", "Open Watch Me Editor" or "Edit Watch Me", asks to edit, trim, cut or export a Watch Me recording, or wants an MP4 video of what they recorded. Do not use for starting a recording (that is the watch-me skill) or for editing other video files.
+---
+
+# Watch Me Editor
+
+Recordings made with Watch Me (screens as frames, microphone audio and, on
+Windows, the computer's sound, transcript) can
+be turned into an MP4 video: the editor shows every recording still stored in the
+recording folder, plays it back with subtitles, lets the user crop the start and the
+end and renders the selected screen to MP4 (H.264 + AAC, constant 24 fps, screen
+resolution) with an SRT subtitle file next to it.
+
+## 1. Locate and run the tool
+
+First call the absolute `scripts/watch-me-editor.bat` (Windows) or
+`scripts/watch-me-editor.sh` (Linux/macOS) with `edit --detach`, or use the
+already connected local MCP tool. The `.cmd` alias remains compatible.
+Do not run diagnostic/setup commands first. Startup checks the prepared Python,
+model and FFmpeg, does not install anything, and acknowledges the ready window.
+
+```text
+<skill-dir>\scripts\watch-me-editor.bat edit --detach
+<skill-dir>/scripts/watch-me-editor.sh edit --detach
+```
+
+Results are JSON (success on stdout, errors on stderr with a non-zero exit code).
+On `UV_MISSING`, `PYTHON_MISSING`, `ENVIRONMENT_INVALID` or `SETUP_REQUIRED`,
+read [startup and recovery](../../docs/agent-startup.md), tell the user what you
+are fixing, perform only that repair and retry the same request. `SETUP_REQUIRED`
+uses the same launcher with `setup`. Never replace a custom model blindly.
+Other errors need their own diagnosis, not a full reinstall. Keep existing config
+and recording arguments. No download-progress dialog is used.
+
+The GUI must survive the command returning. Respect the host's permissions and
+existing approvals. If blocked, use the host's supported local execution or configured
+local MCP route. Do not request approval again when it is already granted.
+
+## 2. Open the editor ("Edit Watch Me") and wait for Process
+
+Allow at least 60 seconds in the host tool for a 45-second application wait, or
+shorten the application wait to leave a margin. If the tool returns a running-task
+handle, retrieve that task's result first. A host timeout is not cancellation.
+For host-specific handling see [startup and recovery](../../docs/agent-startup.md).
+
+
+1. Run `edit --detach`. Add `--session <id>` when the user named a recording (ids look
+   like `20261107-122147`; `sessions` lists them). Without it the newest recording is
+   selected. The result holds `editor_session` (a file path). If an editor was already
+   open, it is reused (`attached` is true) and loads the recording.
+2. Tell the user in one line that the editor is open and that you will act once they
+   press the green **Process** button.
+3. Loop until the event is `process` or `closed`:
+
+   ```text
+   <launcher> wait --editor <editor_session> --timeout 45
+   ```
+
+   `timed_out` true: call it again. Event `process`: the result carries `session_id`,
+   `crop` `{start_ms, end_ms}` and **`instructions`** (the user's master instructions
+   for the whole recording, `""` when none - read them first, they frame everything
+   said in the recording and win over single sentences of the transcript). Then work
+   text first, exactly as in section 4 of the watch-me skill: run
+   `timeline --session <session_id>` (the cropped range as one text timeline: speech
+   with the cursor position, finished drawings with geometry and frame times, copied
+   text, cursor moves between screens, zoom, keypoints; it is in the `timeline` field
+   when `timeline_inline` is true, otherwise read the whole file `timeline_file` with
+   your file reading tool - `--out <path>` writes it into your workspace), decide from
+   it which moments really need a picture and fetch only those with
+   `frames --session <session_id> --at <ms> --screen <screenId> --no-drawings` (for a
+   shape the `after` time of its `DRAW` line). The crop applies to every screen.
+   Event `closed`: the user closed the editor without Process; say so in one line and
+   do nothing else.
+4. `NO_RECORDINGS` means there is nothing to edit yet; suggest recording with Watch Me.
+
+What the user can do in the window: select a recording on the left; press Space to
+play (icon transport buttons under the preview: go to In, step back, play/pause, stop,
+step forward, go to Out; **Stop** returns to where Play was last pressed, marked by a
+white arrow on the ruler; subtitles always shown under the preview, up to five lines and
+then scrolling; the mouse wheel zooms the preview up to 800 %; a click on the mouse left
+of the transport opens the **Mouse** window with everything recorded about the mouse
+and the clipboard at the playhead); switch between the light
+and the dark theme with the button in the right corner above **Edit** (Ctrl+T); correct
+the words of a subtitle with the **Edit** button next to it (the From/To times are
+read-only; Save rewrites `transcript.json` and `transcript.txt`, so the transcript you
+read is the user's corrected version of what was said); drag the In/Out handles on the
+timeline or press `I`/`O` at the playhead to crop (one crop for all screens, remembered
+per recording in `crop.json`; the handles and the playhead snap to the green keypoint
+lines the user inserted while recording, which show "Keypoint N" on hover, and to the
+gray lines where the recording was paused, which show "Paused 42 s"); zoom the
+timeline with -/+ (the playhead stays in the middle); click a screen track to choose
+what is previewed and exported. The bottom row holds **Auto process**, the green
+**Process** (Ctrl+Enter), **Instructions** (Ctrl+I: the master instructions for you,
+stored in `instructions.txt`, empty by default; a bullet on the button marks stored
+ones; the templates **Draft Intent**, **Create Plan** and **Implement** fill the box
+with a ready-made instruction), at the right edge. Right-click a recording for **Render Video...**
+(above Archive Video): pick the screen and the MP4 file (`Select File Name`), and the
+cropped range renders in the background with `RENDERING...` on the row; one video at a
+time, **Cancel Rendering** on that row stops it. **Cancel Archiving** (below Archive
+Video) takes back an archive that has deleted nothing yet; that recording is never
+archived automatically again. Process hands the
+cropped range and the instructions to you and closes the editor. A recording that came
+straight from the Stop dialog is transcribed in the background of the editor: a green
+arrow under the audio track marks how far whisper got with `transcribing (ETA: m:ss)`
+under it, subtitles appear as they are produced, and Render Video and Process stay disabled
+until the transcript is complete (closing the editor early keeps the partial transcript;
+selecting the recording again resumes it; when it fails, **Retry transcription**
+continues it). **Auto process** presses Process by itself five seconds after the
+transcript completes unless the user clicks or types; it is unticked whenever the
+editor opens or another recording is selected. Recordings whose recording window died
+before saving them are finished when the editor starts and appear in the list.
+
+## 3. Export without the window
+
+When the user asks you directly for a video file ("make an MP4 of my last recording",
+"export screen 2 from 10 s to 1 min"), run the export yourself:
+
+```text
+<launcher> export --session <id> [--screen screen2] [--start-ms 10000] [--end-ms 60000] [--output <path.mp4>] [--no-cursor] [--no-srt]
+```
+
+- Default output: `<recording folder>/<id>_<screen>.mp4`; the SRT gets the same name
+  with `.srt`. Times are milliseconds on the recording timeline (the transcript uses
+  the same timeline). The whole recording is exported when `--start-ms`/`--end-ms`
+  are omitted.
+- The result lists `output`, `srt`, `duration_ms`, `width`, `height`, `fps` (24) and
+  `frames_used`. Rendering takes roughly real time or longer for long recordings;
+  the command blocks until it finishes, so run it in the background when your shell
+  has a timeout and tell the user where the file will appear.
+- The cursor is drawn into the video as a small arrow at the recorded position
+  (`--no-cursor` disables it); drawings made with Draw are part of the frames.
+
+## 4. Requirements and limits
+
+FFmpeg with `libx264` and `aac` is needed (`doctor` reports it; `doctor --fix` or
+`setup` downloads a build). The source frames change only every capture interval
+(500 ms by default), so the video looks like a smooth slideshow at 24 fps. Only the
+start and the end can be cut; there is one audio track, a locked narration track showing where subtitles are, a search over the subtitles of all recordings, and no effects. Verified on
+Windows; Linux and macOS support of the editor window is planned.

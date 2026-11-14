@@ -1,0 +1,121 @@
+"""GUI process entry point (``watch-me ui --session ID``)."""
+
+from __future__ import annotations
+
+import logging
+import sys
+import threading
+from pathlib import Path
+
+from watch_me.core.config import load_config
+from watch_me.core.session import SessionPaths, new_session_id
+from watch_me.host import startup
+from watch_me.platform import get_platform
+
+log = logging.getLogger(__name__)
+
+
+def _housekeeping_in_background(config, session_id: str) -> None:
+    """Finish recordings a dead window left behind, without delaying the window. Old
+    recordings are not touched here: the editor archives them when it starts."""
+    from watch_me.host.recovery import recover_orphaned_recordings
+
+    def work() -> None:
+        try:
+            recovered = recover_orphaned_recordings(config.recording_folder)
+        except Exception:  # pragma: no cover - housekeeping must never break the window
+            log.exception("recovery of left-behind recordings failed")
+        else:
+            if recovered:
+                log.info("recovered recordings: %s", ", ".join(recovered))
+
+    threading.Thread(target=work, name="housekeeping", daemon=True).start()
+
+
+def run_ui(session_id: str | None = None, config_file: Path | None = None) -> int:
+    initial = load_config(config_file)
+    request = (
+        SessionPaths(initial.recording_folder, session_id).work_dir / "startup.json"
+        if session_id
+        else None
+    )
+    if request is not None and not request.is_file():
+        request = None
+    config = startup.prepare(config_file, request, "run")
+    try:
+        return _run_ui(config, session_id, config_file, request)
+    except Exception as exc:
+        startup.fail(request, exc)
+        raise
+
+
+def _run_ui(config, session_id, config_file, request) -> int:
+    platform = get_platform()
+    platform.prepare_process()  # DPI awareness must be set before Qt starts
+
+    from PySide6.QtCore import QSettings
+    from PySide6.QtWidgets import QApplication, QMessageBox
+
+    from watch_me.editor.theme import apply_theme
+    from watch_me.host.controller import SessionController
+    from watch_me.ui.control_window import ControlWindow
+    from watch_me.ui.icons import install_app_icon
+
+    status = platform.support_status()
+    app = QApplication.instance() or QApplication(sys.argv)
+    app.setApplicationName("Watch Me")
+    install_app_icon(app, "WatchMe.Recorder")
+    app.setQuitOnLastWindowClosed(False)
+
+    config.recording_folder.mkdir(parents=True, exist_ok=True)
+    session_id = session_id or new_session_id(config.recording_folder)
+    paths = SessionPaths(config.recording_folder, session_id)
+    controller = SessionController(config, platform, paths)
+    controller.config_file = config_file
+    if not status.supported:
+        controller.fail(status.reason, code="UNSUPPORTED_PLATFORM")
+        QMessageBox.critical(None, "Watch Me", status.reason)
+        return 3
+
+    _housekeeping_in_background(config, session_id)
+
+    final_status = {"value": "cancelled"}
+
+    def finished(status_name: str) -> None:
+        final_status["value"] = status_name
+        controller.release_lock()
+        app.quit()
+
+    def overlay_factory():
+        from watch_me.ui.overlay import DrawingOverlay
+
+        return DrawingOverlay()
+
+    def preflight() -> list[str]:
+        from watch_me.transcribe.pipeline import missing_requirements
+
+        return missing_requirements(controller.config)
+
+    # The light / dark theme shared with the editor (Settings > Theme), before the
+    # window draws its icons in the theme's text colour.
+    apply_theme(config.dark)
+    QSettings("WatchMe", "Recorder").remove("view/dark")  # the theme of old versions
+    window = ControlWindow(
+        controller,
+        on_finished=finished,
+        overlay_factory=overlay_factory,
+        config_file=config_file,
+        preflight=preflight,
+    )
+    startup.ensure_valid(request)
+    window.show()
+    window.raise_()
+    window.activateWindow()
+    startup.watch_window(window, request)
+    log.info("control window shown for session %s", session_id)
+    code = app.exec()
+    log.info("session %s finished with %s", session_id, final_status["value"])
+    return 0 if final_status["value"] in {"processed", "cancelled", "editing"} else code or 1
+
+
+__all__ = ["run_ui"]

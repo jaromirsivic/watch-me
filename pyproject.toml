@@ -1,0 +1,55 @@
+[project]
+name = "watch-me"
+version = "0.1.0"
+description = "Record narrated screen sessions (audio, all screens, cursor) and hand a timed transcript plus frames to an AI agent."
+readme = "README.md"
+license = { file = "LICENSE" }
+requires-python = ">=3.12,<3.14"
+dependencies = [
+    "pyside6-essentials>=6.8,<7",
+    "mss>=10.0",
+    "sounddevice>=0.5",
+    "numpy>=2.0",
+    "pillow>=11.0",
+    "pywhispercpp>=1.5",
+    "mcp>=2.0",
+    "platformdirs>=4.0",
+    "python-xlib>=0.33; sys_platform == 'linux'",
+    "soundcard>=0.4.6; sys_platform == 'win32'",
+    "comtypes>=1.4 ; sys_platform == 'win32'",
+]
+
+[project.scripts]
+watch-me = "watch_me.host.cli:main"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+    "pytest-qt>=4.4",
+    "ruff>=0.8",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/watch_me"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+qt_api = "pyside6"
+markers = [
+    "integration: tests that touch real screens, audio devices or the whisper model",
+]
+filterwarnings = [
+    "ignore:Setting the shape on a NumPy array has been deprecated:DeprecationWarning",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]

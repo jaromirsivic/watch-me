@@ -1,0 +1,130 @@
+"""Editor process entry point (``watch-me edit`` starts this detached).
+
+Only one editor runs per recording folder: the running instance holds an OS lock on
+``<recording_folder>/.work/editor.lock`` (see :mod:`watch_me.host.editor_lock`);
+a second start raises the existing window and fails with ``ALREADY_RUNNING``.
+"""
+
+from __future__ import annotations
+
+import logging
+import os
+import sys
+from pathlib import Path
+
+from watch_me.host import startup
+from watch_me.host.editor_launcher import (
+    check_editor_session,
+    editor_lock_path,
+    recover_left_behind,
+)
+from watch_me.host.editor_lock import EditorLock, lock_holder_pid
+from watch_me.host.editor_session import write_editor_event
+from watch_me.host.runner import SessionError
+from watch_me.platform import get_platform
+
+log = logging.getLogger(__name__)
+
+WINDOW_TITLE = "Watch Me Editor"
+
+
+def bring_existing_to_front(title: str = WINDOW_TITLE) -> bool:
+    """Raise the window of the already running editor (Windows only; best effort)."""
+    if not sys.platform.startswith("win"):
+        return False
+    try:
+        import ctypes
+
+        user32 = ctypes.windll.user32
+        handle = user32.FindWindowW(None, title)
+        if not handle:
+            return False
+        SW_RESTORE = 9
+        user32.ShowWindow(handle, SW_RESTORE)
+        user32.SetForegroundWindow(handle)
+        return True
+    except (AttributeError, OSError):
+        return False
+
+
+def run_editor(
+    session_id: str | None = None,
+    config_file: Path | None = None,
+    editor_session: Path | None = None,
+    recording_session: str | None = None,
+) -> int:
+    """Run the editor window; raises :class:`SessionError` when it cannot start.
+
+    ``editor_session`` is the event file the agent waits on (``wait --editor``);
+    ``recording_session`` is a recording session in status ``editing`` that the editor
+    finishes (Process) or cancels (close) - see :mod:`watch_me.host.editor_session`.
+
+    ``ALREADY_RUNNING`` (another editor holds the lock; its window is raised first),
+    ``NO_RECORDINGS``, ``UNKNOWN_SESSION`` and ``INVALID_SESSION`` as for ``--detach``.
+    """
+    request = startup.editor_request(editor_session) if editor_session is not None else None
+    if request is not None and not request.is_file():
+        request = None
+    config = startup.prepare(config_file, request, "edit")
+    try:
+        return _run_editor(
+            config, session_id, config_file, editor_session, recording_session, request
+        )
+    except Exception as exc:
+        startup.fail(request, exc)
+        raise
+
+
+def _run_editor(config, session_id, config_file, editor_session, recording_session, request):
+    platform = get_platform()
+    platform.prepare_process()  # DPI awareness must be set before Qt starts
+
+    from PySide6.QtCore import QSettings
+    from PySide6.QtWidgets import QApplication
+
+    from watch_me.editor.window import EditorWindow
+    from watch_me.ui.icons import install_app_icon
+
+    config.recording_folder.mkdir(parents=True, exist_ok=True)
+    if request is None:
+        recover_left_behind(config)
+        check_editor_session(config, session_id)
+    lock_path = editor_lock_path(config)
+    lock = EditorLock(lock_path)
+    if not lock.acquire():
+        holder = lock_holder_pid(lock_path)
+        log.info("editor already running (pid %s); raising its window", holder)
+        bring_existing_to_front()
+        who = f" (pid {holder})" if holder else ""
+        raise SessionError("ALREADY_RUNNING", f"the Watch Me Editor is already open{who}")
+
+    if editor_session is not None:
+        write_editor_event(editor_session, "open", pid=os.getpid())
+
+    app = QApplication.instance() or QApplication(sys.argv)
+    app.setApplicationName("Watch Me Editor")
+    install_app_icon(app, "WatchMe.Editor")
+    app.setOrganizationName("WatchMe")
+    settings = QSettings("WatchMe", "Editor")
+    try:
+        window = EditorWindow(
+            config,
+            session_id=session_id,
+            settings=settings,
+            editor_session=editor_session,
+            recording_session=recording_session,
+            config_file=config_file,
+        )
+        window.restore_settings()
+        startup.ensure_valid(request)
+        window.show()
+        window.raise_()
+        window.activateWindow()
+        startup.watch_window(window, request, editor=True)
+        log.info("editor shown (session %s)", session_id or "newest")
+        return app.exec()
+    finally:
+        lock.release()
+
+
+__all__ = ["WINDOW_TITLE", "bring_existing_to_front", "run_editor"]
