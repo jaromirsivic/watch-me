@@ -27,7 +27,7 @@ model and FFmpeg, does not install anything, and acknowledges the ready window.
 
 Results are JSON (success on stdout, errors on stderr with a non-zero exit code).
 On `UV_MISSING`, `PYTHON_MISSING`, `ENVIRONMENT_INVALID` or `SETUP_REQUIRED`,
-read [startup and recovery](../../docs/agent-startup.md), tell the user what you
+read [startup and recovery](references/agent-startup.md), tell the user what you
 are fixing, perform only that repair and retry the same request. `SETUP_REQUIRED`
 uses the same launcher with `setup`. Never replace a custom model blindly.
 Other errors need their own diagnosis, not a full reinstall. Keep existing config
@@ -50,7 +50,7 @@ local MCP route. Do not request approval again when it is already granted.
 Allow at least 60 seconds in the host tool for a 45-second application wait, or
 shorten the application wait to leave a margin. If the tool returns a running-task
 handle, retrieve that task's result first. A host timeout is not cancellation.
-For host-specific handling see [startup and recovery](../../docs/agent-startup.md).
+For host-specific handling see [startup and recovery](references/agent-startup.md).
 
 
 Loop until `final` is `true`:

@@ -20,5 +20,7 @@ if not defined WM_ROOT (
   exit /b 21
 )
 
+rem The recovery guide of this skill, named in environment errors (the path the host gave).
+for %%I in ("%~dp0..\references\agent-startup.md") do set "WM_HELP=%%~fI"
 call "%WM_ROOT%\scripts\launch.bat" %*
 exit /b %ERRORLEVEL%

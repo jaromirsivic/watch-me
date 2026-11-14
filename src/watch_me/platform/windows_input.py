@@ -33,7 +33,7 @@ from watch_me.core.input_events import (
 from watch_me.core.timeline import RecordingClock
 
 from .base import MouseSource, PlatformError, TouchpadSource
-from .process import console_python
+from .process import python_command
 from .windows_mouse_hook import parse_line
 from .windows_touchpad import PadLine, TouchLine, parse_touch_line
 
@@ -74,7 +74,7 @@ def system_params() -> MouseSystemParams:
 
 def hook_command() -> list[str]:
     """The helper's command line: the same Python and package as this process."""
-    return [console_python(), "-X", "utf8", "-m", "watch_me.platform.windows_mouse_hook"]
+    return python_command("-m", "watch_me.platform.windows_mouse_hook")
 
 
 class _Job:

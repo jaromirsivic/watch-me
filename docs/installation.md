@@ -9,7 +9,7 @@ transcription (whisper.cpp through `pywhispercpp`, CPU only).
 
 Both windows use the same prepared-environment launcher. A normal start never
 downloads Python, packages, model or FFmpeg. Agents first call the launcher and
-repair only the reported problem, then retry. See [the shared recovery procedure](agent-startup.md).
+repair only the reported problem, then retry. See [the shared recovery procedure](../skills/watch-me/references/agent-startup.md).
 `setup` installs components without probing screens/audio. `doctor` remains full
 diagnostics. Download progress is written to logs, not an application dialog.
 
@@ -77,7 +77,10 @@ code (`models/`, `bin/ffmpeg/` in the code folder: a distribution may bundle the
 `doctor --fix` always download into the state folder; when it cannot be created or
 written they fail with `STATE_NOT_WRITABLE` instead of writing elsewhere.
 `uv run watch-me config path` prints the `config.json` in use, the state folder and
-why it was chosen; `--config <file>` overrides the file. Recordings are not part of the
+why it was chosen; `--config <file>` overrides the file. A relative path in
+`config.json` (`recording_folder`, `whisper_model_path`, `whisper_cli_path`,
+`ffmpeg_path`) is taken from the folder of that file, whatever directory a command or a
+window runs in. Recordings are not part of the
 state: they stay in `recording_folder`. The virtual environment (`.venv`) stays with
 the code. `WATCH_ME_ROOT` only tells the launchers (and the program) where the code
 is.
@@ -300,7 +303,7 @@ MCP waits default to 45 seconds. A 60-second tool budget leaves a margin.
 The separate server-start budget must not be used for downloading. On Linux/macOS
 use `command = "sh"` and arguments `["/absolute/root/skills/watch-me/scripts/watch-me.sh", "mcp"]`.
 Prepare uv/Python before connecting the server. A missing model/FFmpeg is reported
-by the start tool without disconnecting the server. See [agent recovery](agent-startup.md).
+by the start tool without disconnecting the server. See [agent recovery](../skills/watch-me/references/agent-startup.md).
 
 Cursor, `~/.cursor/mcp.json` (or `.cursor/mcp.json` in a project -
 [MCP](https://cursor.com/docs/mcp)); `cursor-agent` reads the same files:
@@ -379,6 +382,12 @@ WATCH_ME_INTEGRATION=1 uv run pytest tests/integration/test_recording.py tests/i
 
 ## Troubleshooting
 
+- `UV_MISSING` (exit code 20) and `PYTHON_MISSING` (22): the environment `.venv` next to the
+  code is missing or cannot start. uv is needed only to repair it - a prepared environment
+  starts without uv on PATH, so `UV_MISSING` means both are missing. The result names the
+  code folder as `root` (run `uv sync --locked --project <root>` there, see
+  [startup and recovery](../skills/watch-me/references/agent-startup.md)) and the guide as
+  `help`. The `.sh` launcher also works from Git Bash on Windows.
 - `ROOT_NOT_FOUND` (launcher, exit code 21): `scripts/watch-me.cmd` / `.sh` found no
   `pyproject.toml` three levels above itself, nor behind the junction or symlink the skill
   is registered with. Register the skill again (`scripts/install-hosts`) or set

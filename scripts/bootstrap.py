@@ -2,6 +2,7 @@
 
 import importlib.util
 import json
+import os
 import re
 import sys
 from pathlib import Path
@@ -25,17 +26,20 @@ DEPENDENCIES = {
 
 
 def fail(message, **details):
-    print(
-        json.dumps({"ok": False, "code": "ENVIRONMENT_INVALID", "message": message, **details}),
-        file=sys.stderr,
-    )
+    # ``root`` is where the environment has to be repaired (uv sync --project <root>); the
+    # folder of a skill registered through a link does not lead there. ``help`` is the
+    # recovery guide of the skill that was called, when its launcher named it.
+    payload = {"ok": False, "code": "ENVIRONMENT_INVALID", "message": message, "root": str(ROOT)}
+    if os.environ.get("WM_HELP"):
+        payload["help"] = os.environ["WM_HELP"]
+    payload.update(details)
+    # ASCII only: stderr of this early code still has the console code page.
+    print(json.dumps(payload), file=sys.stderr)
     return 23
 
 
 def main():
     # Mark entry for the shell: an interpreter that never ran this file is a different failure.
-    import os
-
     marker = os.environ.pop("WM_BOOT_MARKER", None)
     if marker:
         Path(marker).touch()

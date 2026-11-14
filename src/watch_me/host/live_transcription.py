@@ -39,7 +39,7 @@ from watch_me.core.transcript import (
     merge_segments,
     transcript_to_text,
 )
-from watch_me.platform.process import console_python
+from watch_me.platform.process import python_command
 from watch_me.transcribe.live_worker import read_resume_state
 
 log = logging.getLogger(__name__)
@@ -59,10 +59,7 @@ CommandFactory = Callable[[SessionPaths, str], list[str]]
 
 def worker_command(config_file: Path | None) -> CommandFactory:
     def command(paths: SessionPaths, mode: str) -> list[str]:
-        return [
-            console_python(),
-            "-X",
-            "utf8",
+        return python_command(
             "-m",
             "watch_me",
             "--config",
@@ -71,7 +68,7 @@ def worker_command(config_file: Path | None) -> CommandFactory:
             str(paths.work_dir),
             "--mode",
             mode,
-        ]
+        )
 
     return command
 

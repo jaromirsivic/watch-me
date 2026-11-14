@@ -23,5 +23,7 @@ if [ -z "$WM_ROOT" ]; then
   exit 21
 fi
 
-export WM_ROOT
+# The recovery guide of this skill, named in environment errors (the path the host gave).
+WM_HELP=$(CDPATH=; cd -- "$WM_HERE/.." 2>/dev/null && pwd)/references/agent-startup.md
+export WM_ROOT WM_HELP
 exec sh "$WM_ROOT/scripts/launch.sh" "$@"

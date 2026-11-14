@@ -60,15 +60,38 @@ def console_python() -> str:
     return str(exe)
 
 
+def python_command(*args: str, gui: bool = False, utf8: bool = True) -> list[str]:
+    """Command line of a child Python of this installation. Always isolated (``-I``):
+    neither the working directory nor ``PYTHON*`` variables reach its ``sys.path``, so
+    a module of the project the agent works in can never shadow ours. ``gui`` picks
+    ``pythonw.exe`` on Windows (a window), ``utf8`` adds ``-X utf8`` (workers whose
+    pipes are read as UTF-8)."""
+    exe = gui_python() if gui else console_python()
+    return [exe, "-I", *(("-X", "utf8") if utf8 else ()), *args]
+
+
+def neutral_cwd() -> Path | None:
+    """Working directory of a detached window: the user's home folder (``None``: inherit,
+    when there is none). Never the caller's directory - that is the project an agent
+    works in, and on Windows a running process keeps its working directory from being
+    deleted or renamed (a worktree the host wants to clean up)."""
+    try:
+        home = Path.home()
+    except (RuntimeError, OSError):
+        return None
+    return home if home.is_dir() else None
+
+
 def spawn_detached(args: list[str], log_path: Path, cwd: Path | None = None) -> int:
-    """Start a process that outlives the caller; stdout/stderr go to ``log_path``."""
+    """Start a process that outlives the caller; stdout/stderr go to ``log_path``.
+    Without ``cwd`` it runs in :func:`neutral_cwd`, not in the caller's directory."""
     log_path.parent.mkdir(parents=True, exist_ok=True)
     log = open(log_path, "ab")  # noqa: SIM115 - handed to the child
     kwargs: dict[str, object] = {
         "stdin": subprocess.DEVNULL,
         "stdout": log,
         "stderr": log,
-        "cwd": cwd,
+        "cwd": cwd if cwd is not None else neutral_cwd(),
     }
     if sys.platform.startswith("win"):
         kwargs["creationflags"] = (
@@ -162,4 +185,12 @@ def _lower_macos(mode: str) -> str:
     return "below_normal"
 
 
-__all__ = ["console_python", "gui_python", "lower_own_priority", "pid_alive", "spawn_detached"]
+__all__ = [
+    "console_python",
+    "gui_python",
+    "lower_own_priority",
+    "neutral_cwd",
+    "pid_alive",
+    "python_command",
+    "spawn_detached",
+]

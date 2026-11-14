@@ -148,3 +148,30 @@ def test_codex_metadata_uses_only_documented_sections(skill: str):
     for key in ("display_name", "short_description", "default_prompt"):
         assert re.search(rf"^  {key}: \".+\"$", text, re.MULTILINE), key
     assert f"${skill} " in text  # the default prompt names the skill as Codex mentions it
+
+
+@pytest.mark.parametrize("skill", SKILLS)
+def test_skill_links_stay_inside_the_skill_folder(skill: str):
+    """Hosts hand the agent the path of a junction or symlink to the skill folder, and
+    ``..`` is resolved textually before the link is followed, so a link that leaves the
+    folder points at nothing."""
+    folder = REPO / "skills" / skill
+    text = (folder / "SKILL.md").read_text(encoding="utf-8")
+    targets = []
+    for target in re.findall(r"\]\(([^)\s]+)\)", text):
+        if target.startswith(("http://", "https://", "#", "mailto:")):
+            continue
+        targets.append(target.partition("#")[0])
+    assert targets, f"{skill}/SKILL.md links to no local file"
+    for target in targets:
+        assert ".." not in Path(target).parts, target
+        assert not Path(target).is_absolute() and not target.startswith("/"), target
+        assert (folder / target).is_file(), target
+
+
+def test_recovery_guide_is_the_same_file_in_both_skills():
+    guides = {
+        skill: (REPO / "skills" / skill / "references" / "agent-startup.md").read_bytes()
+        for skill in SKILLS
+    }
+    assert len(set(guides.values())) == 1, sorted(guides)

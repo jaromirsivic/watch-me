@@ -33,7 +33,7 @@ from watch_me.core.input_events import (
 from watch_me.core.textcut import truncate_text
 
 from .base import ElementInspector, PlatformError
-from .process import console_python
+from .process import python_command
 from .windows_input import (
     ABOVE_NORMAL_PRIORITY_CLASS,
     CREATE_NO_WINDOW,
@@ -51,7 +51,7 @@ STALE_GRACE_MS = 50
 
 
 def uia_command() -> list[str]:
-    return [console_python(), "-X", "utf8", "-m", "watch_me.platform.windows_uia_helper"]
+    return python_command("-m", "watch_me.platform.windows_uia_helper")
 
 
 def element_from_json(data: dict) -> ElementInfo:

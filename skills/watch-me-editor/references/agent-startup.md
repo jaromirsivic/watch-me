@@ -15,8 +15,8 @@ taken from an error message.
 
 | Result | Action |
 | --- | --- |
-| `UV_MISSING` | Locate an already installed uv first. If absent, install uv using the official platform installer below. Make it available in this shell, then retry |
-| `PYTHON_MISSING`, `ENVIRONMENT_INVALID` | Prepare the plugin's `.venv` using uv and its lockfile, not the agent's current project. Do not use pip |
+| `UV_MISSING` | The environment is missing and uv is not on PATH (a prepared environment starts without uv). Locate an already installed uv first. If absent, install uv using the official platform installer below. Make it available in this shell, then retry; the next result is usually `PYTHON_MISSING` |
+| `PYTHON_MISSING`, `ENVIRONMENT_INVALID` | Prepare the plugin's `.venv` using uv and its lockfile, in the folder the result names as `root`, not in the agent's current project. Do not use pip |
 | `SETUP_REQUIRED` | Run the same launcher with `setup` and the same config. It installs model/FFmpeg. Retry the original start only when setup succeeds |
 | `SETUP_IN_PROGRESS` | Follow the existing installation process/log. Do not start another installer |
 | `SETUP_FAILED` | Report the failed component and cause. Preserve successful downloads and partial files. Retry only after resolving the cause |
@@ -41,7 +41,11 @@ current process PATH, rather than assuming this chat inherited a changed global 
 
 ### Prepare the plugin environment
 
-`<root>` is the verified Watch Me code root containing `pyproject.toml` and `uv.lock`.
+`<root>` is the Watch Me code root containing `pyproject.toml` and `uv.lock`: the `root`
+field of the error result. Do not derive it from the folder of the skill - a skill
+registered through a link lies elsewhere than the code. Only when the result has no
+`root` (a launcher without PowerShell prints a plain message) find it yourself: the
+folder three levels above the real location of the launcher, behind its link.
 Current supported Python is `>=3.12,<3.14`, so Python 3.12 is a suitable repair target.
 Check the project's requirement if it has changed. If a compatible Python exists,
 reuse it. Otherwise run `uv python install 3.12`.

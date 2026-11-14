@@ -50,7 +50,7 @@ from PySide6.QtCore import QObject, QProcess, QTimer, Signal
 from watch_me.core.archive_state import read_archive_state, record_archive_failure
 from watch_me.core.config import Config, config_path
 from watch_me.core.session import SessionPaths
-from watch_me.platform.process import console_python
+from watch_me.platform.process import python_command
 
 from .transcription import _error_message
 
@@ -228,10 +228,7 @@ class ArchiveManager(QObject):
 
     def command(self, paths: SessionPaths) -> list[str]:
         """The worker command line (tests replace it with a script of their own)."""
-        return [
-            console_python(),
-            "-X",
-            "utf8",
+        return python_command(
             "-m",
             "watch_me",
             "--config",
@@ -239,7 +236,7 @@ class ArchiveManager(QObject):
             "archive-stream",
             str(paths.final_dir),
             "--stop-on-eof",
-        ]
+        )
 
     def _start_next(self) -> None:
         if self._process is not None or self._stopping or not self._queue:

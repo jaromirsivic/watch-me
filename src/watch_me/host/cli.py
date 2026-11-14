@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import os
 import sys
 import time
 from pathlib import Path
@@ -80,7 +81,9 @@ def attach_file_log(path: Path) -> logging.Handler:
 
 
 def _config_file(args: argparse.Namespace) -> Path | None:
-    return Path(args.config) if args.config else None
+    """``--config`` as an absolute path: it is handed to windows and workers, which run
+    in another working directory than this command."""
+    return Path(os.path.abspath(Path(args.config).expanduser())) if args.config else None
 
 
 def _load(args: argparse.Namespace) -> Config:
@@ -991,8 +994,17 @@ def main(argv: list[str] | None = None) -> int:
             "comtypes",
             "Xlib",
         }:
-            emit_error("ENVIRONMENT_INVALID", f"Missing library {exc.name}. Run uv sync --locked.")
-            return 23
+            from watch_me.core.config import code_root
+
+            error = HostError(
+                "ENVIRONMENT_INVALID",
+                f"Missing library {exc.name}. Run uv sync --locked.",
+                23,
+                missing=[exc.name],
+                root=str(code_root()),  # where uv sync has to run (not the skill's folder)
+            )
+            sys.stderr.write(json.dumps(error.to_dict(), ensure_ascii=False) + "\n")
+            return error.exit_code
         log.exception("internal import failed")
         emit_error("INTERNAL_ERROR", str(exc))
         return EXIT_ERROR

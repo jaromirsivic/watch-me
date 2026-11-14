@@ -46,7 +46,7 @@ from watch_me.host.agent_output import DEFAULT_INLINE_CHARS, fits_inline
 from watch_me.host.errors import HostError
 from watch_me.host.readiness import require_ready
 from watch_me.host.waiting import timeout_seconds
-from watch_me.platform.process import gui_python, pid_alive, spawn_detached
+from watch_me.platform.process import pid_alive, python_command, spawn_detached
 
 log = logging.getLogger(__name__)
 
@@ -160,8 +160,7 @@ def _launch_control_window_ready(config: Config, config_file: Path | None = None
     )
     write_state(paths.state_path, state)
     request = startup.create_request(paths.work_dir / "startup.json", config, "run", session_id)
-    args = [
-        gui_python(),
+    args = python_command(
         "-m",
         "watch_me",
         "--config",
@@ -169,9 +168,11 @@ def _launch_control_window_ready(config: Config, config_file: Path | None = None
         "ui",
         "--session",
         session_id,
-    ]
+        gui=True,
+        utf8=False,
+    )
     try:
-        pid = spawn_detached(args, paths.work_dir / UI_LOG_FILE_NAME, cwd=Path.cwd())
+        pid = spawn_detached(args, paths.work_dir / UI_LOG_FILE_NAME)
     except OSError as exc:
         state.status = Status.FAILED
         state.error_code = "START_FAILED"

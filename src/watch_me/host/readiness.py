@@ -5,7 +5,7 @@ import os
 from pathlib import Path
 from typing import Any
 
-from watch_me.core.config import Config, resolve_state_root
+from watch_me.core.config import Config, code_root, resolve_state_root
 from watch_me.core.model_info import MODEL_SIZE
 from watch_me.host.errors import HostError
 from watch_me.transcribe.ffmpeg import find_ffmpeg
@@ -77,6 +77,7 @@ def require_ready(config: Config) -> dict[str, Any]:
             "Repair the project environment with uv sync --locked.",
             23,
             missing=missing,
+            root=str(code_root()),  # where uv sync has to run (not the skill's folder)
         )
     if config.whisper_backend == "whisper-cli":
         reason = _file_problem(config.whisper_cli_path, executable=True)

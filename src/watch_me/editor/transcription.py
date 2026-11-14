@@ -28,7 +28,7 @@ from PySide6.QtCore import QObject, QProcess, Signal
 from watch_me.core.config import Config, config_path
 from watch_me.core.session import SessionPaths
 from watch_me.core.transcript import Segment
-from watch_me.platform.process import console_python
+from watch_me.platform.process import python_command
 
 from .recording import LoadedRecording
 
@@ -89,10 +89,7 @@ class TranscriptionManager(QObject):
 
     def command(self, paths: SessionPaths, start_ms: int) -> list[str]:
         """The worker command line (tests replace it with a script of their own)."""
-        return [
-            console_python(),
-            "-X",
-            "utf8",
+        return python_command(
             "-m",
             "watch_me",
             "--config",
@@ -101,7 +98,7 @@ class TranscriptionManager(QObject):
             str(paths.final_dir),
             "--from-ms",
             str(max(0, int(start_ms))),
-        ]
+        )
 
     def start(self, recording: LoadedRecording) -> bool:
         """Transcribe ``recording`` from where it stopped.

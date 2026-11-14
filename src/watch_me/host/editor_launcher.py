@@ -9,7 +9,7 @@ from typing import Any
 from watch_me.core.config import Config, config_path
 from watch_me.core.manifest import read_manifest
 from watch_me.core.session import WORK_DIR_NAME, is_session_id, list_sessions
-from watch_me.platform.process import gui_python, spawn_detached
+from watch_me.platform.process import python_command, spawn_detached
 
 from . import startup
 from .editor_lock import lock_holder_pid
@@ -139,13 +139,13 @@ def _launch_editor_ready(
         except OSError:
             pass
     config_arg = str(config_file or config_path())
-    args = [gui_python(), "-m", "watch_me", "--config", config_arg, "edit"]
+    args = python_command("-m", "watch_me", "--config", config_arg, "edit", gui=True, utf8=False)
     args += ["--session", selected]
     args += ["--editor-session", str(editor_session)]
     if recording_session is not None:
         args += ["--recording-session", recording_session]
     try:
-        pid = spawn_detached(args, work / EDITOR_LOG_NAME, cwd=Path.cwd())
+        pid = spawn_detached(args, work / EDITOR_LOG_NAME)
     except OSError as exc:
         write_editor_event(editor_session, "closed")
         raise HostError(

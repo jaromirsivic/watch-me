@@ -28,7 +28,7 @@ Relevantní místa: [CLI](../src/watch_me/host/cli.py), [spuštění nahráván�
 ## Společný postup spuštění
 
 1. Skill bez předchozí diagnostiky zavolá připravený `.bat` na Windows nebo `.sh` na Linuxu a macOS s požadavkem `run --detach` či `edit --detach`. Pokud je už dostupný odpovídající lokální MCP nástroj, zavolá jej přímo. Zachová výběr nahrávky, konfiguraci a ostatní původní argumenty.
-2. Shellový spouštěč určí kořen aplikace, ověří dostupné `uv` a připravený Python aplikace a rovnou předá řízení aplikaci. Chybějící nebo nepoužitelné prostředí ohlásí řízenou chybou. Nic automaticky neinstaluje.
+2. Shellový spouštěč určí kořen aplikace, ověří dostupné `uv` a připravený Python aplikace a rovnou předá řízení aplikaci. Chybějící nebo nepoužitelné prostředí ohlásí řízenou chybou. Nic automaticky neinstaluje. *Změna 15. 11. 2026 ([plán oprav spouštěčů](../implementation-plan-launcher-fixes.md), R1): `uv` se hledá jen tehdy, když chybí interpret prostředí; připravené prostředí startuje i bez `uv` v `PATH`.*
 3. Aplikace provede společnou rychlou kontrolu modelu a FFmpeg. Stejná logika se použije pro nahrávání, editor, přímé spuštění GUI i MCP. Při chybějící součásti vrátí seznam problémů, nevytvoří novou relaci a neotevře nové okno.
 4. Při úspěšné kontrole aplikace otevře požadované okno nebo připojí požadavek k existujícímu editoru. Po potvrzení připravenosti vrátí `ok: true` a identifikátor nahrávací nebo editorové relace. Agent začne čekat na dokončení.
 5. Při chybě agent stručně oznámí konkrétní problém a následující opravu. Zajistí jen chybějící či prokazatelně vadné součásti pomocí stanoveného instalačního postupu. Po dokončení zopakuje původní spuštění.

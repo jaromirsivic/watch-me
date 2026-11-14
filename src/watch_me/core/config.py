@@ -390,7 +390,8 @@ def config_path() -> Path:
     """
     override = os.environ.get(CONFIG_PATH_ENV)
     if override:
-        return Path(override).expanduser()
+        # Absolute: the windows and workers get this path and run in another directory.
+        return Path(os.path.abspath(Path(override).expanduser()))
     return state_root() / CONFIG_FILE_NAME
 
 
@@ -427,7 +428,22 @@ def load_config(path: Path | None = None) -> Config:
         raw = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
         raise ConfigError("config", f"cannot read {path}: {exc}") from exc
-    return config_from_dict(raw)
+    return _anchor_relative_paths(config_from_dict(raw), Path(os.path.abspath(path)).parent)
+
+
+# Path settings of config.json. A relative value is taken from the folder of the file:
+# the commands, the windows and their workers run in different working directories and
+# must all mean the same place.
+PATH_SETTINGS = ("recording_folder", "whisper_model_path", "whisper_cli_path", "ffmpeg_path")
+
+
+def _anchor_relative_paths(config: Config, base: Path) -> Config:
+    changes = {
+        name: base / value
+        for name in PATH_SETTINGS
+        if (value := getattr(config, name)) is not None and not value.is_absolute()
+    }
+    return replace(config, **changes) if changes else config
 
 
 def save_config(config: Config, path: Path | None = None) -> Path:
