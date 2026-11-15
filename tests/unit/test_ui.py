@@ -898,11 +898,10 @@ def test_python_owns_no_widget_that_the_window_owns(window):
     """A child widget owned by Python as well as by its Qt parent is deleted twice when
     the cyclic collector runs off the GUI thread (a widget put into a layout that has
     no window yet ends up like that)."""
-    import shiboken6
+    from qt_ownership import owned_by_python_under
 
-    children = window.findChildren(cw.QWidget)
-    assert window.record_button in children and window.draw_button in children
-    assert [child for child in children if shiboken6.ownedByPython(child)] == []
+    assert window.record_button.parent() is window and window.draw_button.parent() is window
+    assert owned_by_python_under(window) == []
 
 
 def test_saving_keeps_the_garbage_collector_on_the_gui_thread(

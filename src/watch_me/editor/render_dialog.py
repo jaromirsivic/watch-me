@@ -165,6 +165,9 @@ class RenderVideoDialog(QDialog):
         form.addRow("File", self.file_edit)
         layout.addLayout(form)
         row = QHBoxLayout()
+        # Into the dialog's layout before the buttons go in (see watch_me.editor.workers:
+        # otherwise Python keeps owning them and they can be deleted twice).
+        layout.addLayout(row)
         row.addStretch(1)
         self.render_button = QPushButton("Render")
         self.render_button.setDefault(True)
@@ -174,7 +177,6 @@ class RenderVideoDialog(QDialog):
         self.cancel_button = QPushButton("Cancel")
         self.cancel_button.clicked.connect(self.reject)
         row.addWidget(self.cancel_button)
-        layout.addLayout(row)
         self.setMinimumWidth(460)
 
     @property

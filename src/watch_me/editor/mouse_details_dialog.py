@@ -129,7 +129,11 @@ class MouseDetailsDialog(QDialog):
         layout.setContentsMargins(12, 10, 12, 12)
         layout.setSpacing(8)
 
+        # Every nested layout below goes into its parent layout before its widgets go
+        # into it (see watch_me.editor.workers: otherwise Python keeps owning them and
+        # they can be deleted twice).
         header = QHBoxLayout()
+        layout.addLayout(header)
         self.title_label = QLabel("Mouse")
         font = self.title_label.font()
         font.setPointSizeF(font.pointSizeF() + 2)
@@ -140,7 +144,6 @@ class MouseDetailsDialog(QDialog):
         header.addWidget(self.title_label)
         header.addSpacing(12)
         header.addWidget(self.where_label, 1)
-        layout.addLayout(header)
 
         layout.addWidget(self._buttons_panel())
         layout.addWidget(self._panel("Action", ACTION_FIELDS))
@@ -162,6 +165,7 @@ class MouseDetailsDialog(QDialog):
         row = QHBoxLayout(box)
         row.setSpacing(16)
         buttons = QHBoxLayout()
+        row.addLayout(buttons, 1)
         buttons.setSpacing(6)
         for button in BUTTONS:
             label = QLabel(BUTTON_LABELS[button])
@@ -171,8 +175,8 @@ class MouseDetailsDialog(QDialog):
             label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
             self.button_boxes[button] = label
             buttons.addWidget(label, 1)
-        row.addLayout(buttons, 1)
         wheel = QGridLayout()
+        row.addLayout(wheel)
         wheel.setSpacing(2)
         for direction in WHEEL_DIRECTIONS:
             arrow = QLabel(WHEEL_ARROWS[direction])
@@ -185,7 +189,6 @@ class MouseDetailsDialog(QDialog):
         caption = QLabel("wheel")
         caption.setAlignment(Qt.AlignmentFlag.AlignCenter)
         wheel.addWidget(caption, 1, 1)
-        row.addLayout(wheel)
         return box
 
     def _panel(
@@ -199,6 +202,7 @@ class MouseDetailsDialog(QDialog):
         layout = QVBoxLayout(box)
         layout.setSpacing(6)
         grid = QGridLayout()
+        layout.addLayout(grid)
         grid.setHorizontalSpacing(10)
         grid.setVerticalSpacing(6)
         for column in range(4):
@@ -218,7 +222,6 @@ class MouseDetailsDialog(QDialog):
             self.fields[key] = field
             self.labels[key] = label
             column += span
-        layout.addLayout(grid)
         if text_key is not None:
             label = QLabel(text_label)
             self.labels[text_key] = label

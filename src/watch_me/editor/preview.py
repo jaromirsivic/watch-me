@@ -787,7 +787,12 @@ class PreviewPanel(QWidget):
         # transport, time and subtitle rows), the transport buttons centred with the time
         # and the subtitle below them, and on the right a column as wide as the mouse
         # with the theme toggle above Edit, so that the transport stays centred.
+        # The grid goes into the panel's layout, and the row into the grid, before any
+        # widget goes in: otherwise Python keeps owning the widgets Qt made children of
+        # the panel, and they are deleted twice when the cyclic collector runs off the
+        # GUI thread (see watch_me.editor.workers).
         controls = QGridLayout()
+        layout.addLayout(controls)
         controls.setContentsMargins(0, 0, 0, 0)
         controls.setHorizontalSpacing(6)
         controls.setVerticalSpacing(4)
@@ -800,6 +805,7 @@ class PreviewPanel(QWidget):
             self.mouse_view, 0, 0, 3, 1, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop
         )
         row = QHBoxLayout()
+        controls.addLayout(row, 0, 1)
         row.setSpacing(4)
         row.addStretch(1)
         self.in_button = self._button("|<", "Go to In (Home)", self.go_in.emit, row)
@@ -815,7 +821,6 @@ class PreviewPanel(QWidget):
         )
         self.out_button = self._button(">|", "Go to Out (End)", self.go_out.emit, row)
         row.addStretch(1)
-        controls.addLayout(row, 0, 1)
         self.theme_button = self._button("Theme", "", self.theme_toggled.emit, None)
         controls.addWidget(self.theme_button, 0, 2, Qt.AlignmentFlag.AlignRight)
         self._apply_icons()
@@ -849,7 +854,6 @@ class PreviewPanel(QWidget):
             2,
             Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter,
         )
-        layout.addLayout(controls)
         self._subtitle_text = ""
 
     @staticmethod

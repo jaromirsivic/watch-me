@@ -658,7 +658,12 @@ class EditorWindow(QMainWindow):
         title_font.setBold(True)
         title.setFont(title_font)
         # The title with Create new folder (a folder with a plus) on its right.
+        # Every row goes into its parent layout before its widgets go into the row:
+        # a widget put into a layout that has no widget yet stays owned by Python as
+        # well as by Qt, and is deleted twice when the cyclic collector runs off the
+        # GUI thread (see watch_me.editor.workers).
         title_row = QHBoxLayout()
+        left_layout.addLayout(title_row)
         title_row.setContentsMargins(0, 0, 0, 0)
         title_row.addWidget(title)
         title_row.addStretch(1)
@@ -695,7 +700,6 @@ class EditorWindow(QMainWindow):
         folders_menu.aboutToShow.connect(self._update_folders_menu)
         self.folders_menu = folders_menu
         title_row.addWidget(self.folders_menu_button)
-        left_layout.addLayout(title_row)
         self.list_view = RecordingsListView()
         self.list_view.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self.list_view.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
@@ -705,6 +709,7 @@ class EditorWindow(QMainWindow):
         left_layout.addWidget(self.list_view, 1)
         # Under the list: the search box, the magnifier (search) and Refresh (icon only).
         search_row = QHBoxLayout()
+        left_layout.addLayout(search_row)
         search_row.setSpacing(4)
         self.search_edit = QLineEdit()
         self.search_edit.setPlaceholderText(SEARCH_PLACEHOLDER)
@@ -719,7 +724,6 @@ class EditorWindow(QMainWindow):
         self.refresh_button = self._icon_button("Refresh", "Rescan the recording folder (F5)")
         self.refresh_button.clicked.connect(self.refresh_recordings)
         search_row.addWidget(self.refresh_button)
-        left_layout.addLayout(search_row)
         self._apply_icons()
         # Dragged narrower than the rows need, the list snaps away completely.
         left.setMinimumWidth(MIN_LIST_WIDTH)
@@ -745,6 +749,7 @@ class EditorWindow(QMainWindow):
         bottom_layout.setSpacing(4)
 
         tools = QHBoxLayout()
+        bottom_layout.addLayout(tools)
         tools.setSpacing(6)
         tools.addWidget(QLabel("In"))
         self.in_edit = TimeEdit()
@@ -780,7 +785,6 @@ class EditorWindow(QMainWindow):
         tools.addWidget(self.zoom_in_button)
         # No Fit button: the slider's left end (or "-") is the whole recording; Ctrl+0
         # still jumps there.
-        bottom_layout.addLayout(tools)
 
         self.timeline = TimelineView(self.model)
         self.timeline.playhead_moved.connect(self._on_playhead_moved)
@@ -798,6 +802,7 @@ class EditorWindow(QMainWindow):
 
         # Bottom row, at the right edge: Auto process | Process | Instructions.
         render_row = QHBoxLayout()
+        bottom_layout.addLayout(render_row)
         render_row.setSpacing(12)
         render_row.addStretch(1)
         # Hidden unless the transcription of the shown recording failed.
@@ -845,7 +850,6 @@ class EditorWindow(QMainWindow):
         self.instructions_button.setEnabled(False)
         self.instructions_button.clicked.connect(self.edit_instructions)
         render_row.addWidget(self.instructions_button)
-        bottom_layout.addLayout(render_row)
         self.right_splitter.addWidget(bottom)
         self.right_splitter.setStretchFactor(0, 3)
         self.right_splitter.setStretchFactor(1, 2)

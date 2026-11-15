@@ -285,10 +285,12 @@ class SettingsDialog(QDialog):
         self.open_folder_button.setToolTip("Open the recording folder in the file manager")
         self.open_folder_button.clicked.connect(self._open_folder)
         folder_buttons = QHBoxLayout()
+        # Into the form before the buttons go in (see watch_me.editor.workers: otherwise
+        # Python keeps owning them and they can be deleted twice).
+        form.addRow("", folder_buttons)
         folder_buttons.addWidget(self.browse_button)
         folder_buttons.addWidget(self.open_folder_button)
         folder_buttons.addStretch(1)
-        form.addRow("", folder_buttons)
 
         # A thicker line above Save and Cancel
         self.footer_separator = SeparatorLine(thickness=SETTINGS_FOOTER_LINE_PX)

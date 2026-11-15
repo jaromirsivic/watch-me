@@ -122,6 +122,9 @@ class InstructionsDialog(QDialog):
         explanation.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         layout.addWidget(explanation)
         templates = QHBoxLayout()
+        # Into the dialog's layout before the buttons go in (see watch_me.editor.workers:
+        # otherwise Python keeps owning them and they can be deleted twice).
+        layout.addLayout(templates)
         templates.setSpacing(8)
         self.template_buttons: dict[str, QPushButton] = {}
         for template in TEMPLATES:
@@ -132,7 +135,6 @@ class InstructionsDialog(QDialog):
             templates.addWidget(button)
             self.template_buttons[template.name] = button
         templates.addStretch(1)
-        layout.addLayout(templates)
         self.text_edit = QPlainTextEdit(self)
         self.text_edit.setPlaceholderText(PLACEHOLDER)
         self.text_edit.setPlainText(text)
