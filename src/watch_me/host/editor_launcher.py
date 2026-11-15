@@ -17,6 +17,7 @@ from .editor_session import new_editor_session, write_attach_request, write_edit
 from .errors import HostError
 from .readiness import require_ready
 from .runner import SessionError
+from .window_start import AUTO, resolve, start_window
 
 log = logging.getLogger(__name__)
 
@@ -82,10 +83,14 @@ def launch_editor(
     session_id: str | None = None,
     config_file: Path | None = None,
     recording_session: str | None = None,
+    start: str = AUTO,
+    from_command: bool = False,
 ) -> dict[str, Any]:
     require_ready(config)
     with startup.launch_guard(config, "editor"):
-        return _launch_editor_ready(config, session_id, config_file, recording_session)
+        return _launch_editor_ready(
+            config, session_id, config_file, recording_session, start, from_command
+        )
 
 
 def _launch_editor_ready(
@@ -93,6 +98,8 @@ def _launch_editor_ready(
     session_id: str | None = None,
     config_file: Path | None = None,
     recording_session: str | None = None,
+    start: str = AUTO,
+    from_command: bool = False,
 ) -> dict[str, Any]:
     """Open the editor for ``session_id`` (default: the newest recording) and return at once.
 
@@ -102,6 +109,9 @@ def _launch_editor_ready(
     editor load the recording and adopt the editor session (``attached`` is true).
     ``recording_session`` is the id of a recording session in status ``editing``
     (the editor finishes or cancels it when the user presses Process or closes).
+    ``start`` says how a new editor process is started (``start`` in the result says how
+    it was; see :mod:`watch_me.host.window_start`). ``from_command``: the caller is a
+    command that ends right after this (``edit --detach``).
     """
     recover_left_behind(config)
     recordings = check_editor_session(config, session_id)
@@ -109,8 +119,14 @@ def _launch_editor_ready(
     work.mkdir(parents=True, exist_ok=True)
     editor_session = new_editor_session(config)
     selected = session_id or recordings[0]
+    mode = resolve(start)
     startup_request = startup.create_request(
-        startup.editor_request(editor_session), config, "edit", selected
+        startup.editor_request(editor_session),
+        config,
+        "edit",
+        selected,
+        start=mode,
+        owner=startup.OWNER_COMMAND if from_command else startup.OWNER_PROCESS,
     )
     running = editor_running_pid(config)
     if running is not None:
@@ -145,7 +161,7 @@ def _launch_editor_ready(
     if recording_session is not None:
         args += ["--recording-session", recording_session]
     try:
-        pid = spawn_detached(args, work / EDITOR_LOG_NAME)
+        started = start_window(args, work / EDITOR_LOG_NAME, mode, direct=spawn_detached)
     except OSError as exc:
         write_editor_event(editor_session, "closed")
         raise HostError(
@@ -155,21 +171,24 @@ def _launch_editor_ready(
             editor_session=str(editor_session),
             log=str(work / EDITOR_LOG_NAME),
         ) from exc
+    if started.start != mode:
+        startup.record_start(startup_request, started.start)
     ready = startup.wait_ready(
         startup_request,
-        pid,
+        started.pid,
         work / EDITOR_LOG_NAME,
         editor_session=str(editor_session),
         session_id=selected,
     )
-    log.info("editor started: pid %s, session %s", pid, selected)
+    log.info("editor started (%s): pid %s, session %s", started.start, started.pid, selected)
     return {
-        "pid": ready.get("pid", pid),
+        "pid": ready.get("pid", started.pid),
         "session_id": selected,
         "recordings": len(recordings),
         "editor_session": str(editor_session),
         "attached": False,
         "log": str(work / EDITOR_LOG_NAME),
+        **started.to_dict(),
     }
 
 

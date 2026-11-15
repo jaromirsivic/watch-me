@@ -22,6 +22,7 @@ taken from an error message.
 | `SETUP_FAILED` | Report the failed component and cause. Preserve successful downloads and partial files. Retry only after resolving the cause |
 | `START_FAILED` | Inspect its reason/log and session/startup file. Retrieve the existing result before starting another window. Do not reinstall packages merely because GUI startup failed |
 | `ALREADY_RUNNING` | Reuse the existing recording session and wait. The editor normally attaches to its existing window |
+| `WINDOW_ENDED_WITH_COMMAND` from `wait`, or `closed` with `reason: ended_with_command` from `wait --editor` | The host stopped the window together with the command that started it. Start once more with the arguments in `next` (see below). Not a missing dependency, and not the user closing the window |
 | `ROOT_NOT_FOUND` | Repair the plugin path/link or set `WATCH_ME_ROOT` to the verified code root |
 | `NO_RECORDINGS`, `CONFIG_INVALID`, `STATE_NOT_WRITABLE` | Report and resolve that actual condition. These do not mean the model needs downloading |
 
@@ -29,6 +30,25 @@ Do not repeat the same failed repair indefinitely. A custom model is not automat
 replaced by the bundled model. If the saved recording exists but opening the editor
 failed, repair the reported component and open that saved recording with `edit --session`.
 Never start a fresh recording in its place or act on it before Process.
+
+### A window that ends with the command
+
+Some hosts stop every process a command leaves behind when the command ends. The
+window then appears and disappears, and the next `wait` says so: the recorder session
+fails with `WINDOW_ENDED_WITH_COMMAND`, an editor session returns `closed` with
+`reason: ended_with_command`. Both carry `next`, the arguments for the same launcher:
+`run --detach --start outside` or `edit --detach --start outside --session <id>`.
+Run it once and wait on the new session or `editor_session`; tell the user in one line
+that the window had to be opened again.
+
+`--start outside` (Windows) starts the window outside the host's processes, through
+Windows PowerShell and WMI. Watch Me remembers the finding in `window-start.json` of
+its state folder, so later starts with the default `--start auto` go that way at once.
+The start result says how the window was started: `"start": "direct"` (a child of the
+command) or `"start": "outside"`. `start_note` is present when `outside` was asked for
+and could not be had (PowerShell or WMI blocked): the window is a child again and may
+end the same way. Then, or when the second start ends with the command too, use the
+configured local MCP route; without one, report it to the user. Do not loop.
 
 ### Install uv only when absent
 

@@ -13,6 +13,7 @@ from watch_me.core.config import Config
 from watch_me.core.screens import RawScreen
 from watch_me.host import doctor
 from watch_me.host.downloads import DownloadError
+from watch_me.platform import windows_jobs
 from watch_me.platform.base import SupportStatus
 from watch_me.transcribe.ffmpeg import FfmpegNotFound
 
@@ -34,6 +35,9 @@ class FakePlatform:
     def list_screens(self) -> list[RawScreen]:
         return self._screens
 
+
+FAKE_CHAIN_ENTRY = {"pid": 1, "name": "python.exe", "in_job": True}
+FAKE_HOST_JOB = {"in_job": False, **windows_jobs.describe_limits(None)}
 
 DEVICES = [
     AudioDevice(3, "USB Mic", "WASAPI", 48000, 2, True),
@@ -63,6 +67,9 @@ def healthy(tmp_path: Path, monkeypatch) -> tuple[Config, FakePlatform]:
         "computer_audio_support",
         lambda: computer_audio.ComputerAudioSupport(True, "", "Speakers"),
     )
+    # The job diagnostics start a helper process (tens of ms) for each doctor run.
+    monkeypatch.setattr(windows_jobs, "process_chain", lambda limit=8: [FAKE_CHAIN_ENTRY])
+    monkeypatch.setattr(windows_jobs, "host_job", lambda: FAKE_HOST_JOB)
     cfg = Config(recording_folder=tmp_path / "rec", whisper_model_path=model)
     return cfg, platform
 
@@ -345,3 +352,45 @@ def test_computer_audio_is_optional_and_never_fails_the_doctor(monkeypatch):
     check = doctor.check_computer_audio(Config())
     assert check.ok and "no audio output device" in check.detail
     assert "switched off" in doctor.check_computer_audio(Config(computer_audio=False)).detail
+
+
+def test_doctor_reports_the_process_without_changing_ok(healthy, monkeypatch):
+    cfg, _ = healthy
+    monkeypatch.setattr(windows_jobs, "supported", lambda: True)
+    monkeypatch.setattr(doctor.window_start, "remembered", lambda: None)
+    report = doctor.run_doctor(cfg)
+    assert report["ok"] is True
+    assert report["process"] == {
+        "chain": [FAKE_CHAIN_ENTRY],
+        "host_job": FAKE_HOST_JOB,
+        "window_start": None,
+    }
+
+
+def test_doctor_process_failure_is_reported_not_raised(healthy, monkeypatch):
+    cfg, _ = healthy
+    monkeypatch.setattr(windows_jobs, "supported", lambda: True)
+
+    def broken(limit=8):
+        raise RuntimeError("no snapshot")
+
+    monkeypatch.setattr(windows_jobs, "process_chain", broken)
+    report = doctor.run_doctor(cfg)
+    assert report["process"] == {"error": "RuntimeError: no snapshot"}
+    assert report["ok"] is True
+
+    monkeypatch.setattr(windows_jobs, "process_chain", lambda limit=8: [])
+    monkeypatch.setattr(windows_jobs, "host_job", broken)
+    assert doctor.run_doctor(cfg)["process"] == {"error": "RuntimeError: no snapshot"}
+
+    monkeypatch.setattr(doctor, "list_input_devices", lambda: [])
+    report = doctor.run_doctor(cfg)
+    assert report["ok"] is False and "error" in report["process"]
+
+
+def test_doctor_process_is_none_outside_windows(healthy, monkeypatch):
+    cfg, _ = healthy
+    monkeypatch.setattr(windows_jobs, "supported", lambda: False)
+    report = doctor.run_doctor(cfg)
+    assert "process" in report and report["process"] is None
+    assert report["ok"] is True

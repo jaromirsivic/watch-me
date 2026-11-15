@@ -316,7 +316,11 @@ def _fake_editor_launch(monkeypatch) -> list[dict]:
     """Replace the editor launch (no real process); returns the recorded calls."""
     launched: list[dict] = []
 
-    def fake_launch(config, session_id=None, config_file=None, recording_session=None):
+    def fake_launch(
+        config, session_id=None, config_file=None, recording_session=None, start="auto"
+    ):
+        # The window is already where the editor has to run: never around the host again.
+        assert start == "direct"
         launched.append({"session_id": session_id, "recording_session": recording_session})
         return {"pid": 4321, "session_id": session_id, "editor_session": "x", "attached": False}
 
@@ -368,7 +372,9 @@ def test_editor_that_cannot_open_hands_nothing_to_the_agent(window, controller, 
     """Nobody pressed Process: the session ends ``cancelled`` and the recording is kept."""
     _no_transcription(monkeypatch)
 
-    def failing_launch(config, session_id=None, config_file=None, recording_session=None):
+    def failing_launch(
+        config, session_id=None, config_file=None, recording_session=None, start="auto"
+    ):
         raise RuntimeError("no editor today")
 
     monkeypatch.setattr(cw, "launch_editor", failing_launch)
@@ -886,6 +892,50 @@ def test_drawings_are_cleared_when_drawing_mode_ends(qtbot, controller):
         w._close_overlay()  # its application-wide shortcuts must not outlive the test
         w._done = True
         w.close()
+
+
+def test_python_owns_no_widget_that_the_window_owns(window):
+    """A child widget owned by Python as well as by its Qt parent is deleted twice when
+    the cyclic collector runs off the GUI thread (a widget put into a layout that has
+    no window yet ends up like that)."""
+    import shiboken6
+
+    children = window.findChildren(cw.QWidget)
+    assert window.record_button in children and window.draw_button in children
+    assert [child for child in children if shiboken6.ownedByPython(child)] == []
+
+
+def test_saving_keeps_the_garbage_collector_on_the_gui_thread(
+    window, controller, monkeypatch, qtbot
+):
+    """Garbage is collected on the GUI thread right before each worker thread starts,
+    and no automatic collection runs while the worker does its job."""
+    import gc
+
+    gui_thread = QApplication.instance().thread()
+    seen: list[tuple[str, bool, bool]] = []
+    collected: list[int] = []
+    save = controller.process
+
+    def process():
+        seen.append(("save", cw.QThread.currentThread() is gui_thread, gc.isenabled()))
+        return save()
+
+    def launch(config, session_id=None, config_file=None, recording_session=None, start="auto"):
+        seen.append(("launch", cw.QThread.currentThread() is gui_thread, gc.isenabled()))
+        return {"pid": 4321, "session_id": session_id, "editor_session": "x", "attached": False}
+
+    monkeypatch.setattr(controller, "process", process)
+    monkeypatch.setattr(cw, "launch_editor", launch)
+    monkeypatch.setattr(cw, "collect_garbage", lambda: collected.append(len(seen)))
+    assert gc.isenabled()
+    window.record_button.click()
+    _auto_answer_stop(monkeypatch, StopChoice.EDITOR)
+    window.record_button.click()
+    qtbot.waitUntil(lambda: window.finished_statuses == ["editing"], timeout=10000)
+    assert seen == [("save", False, False), ("launch", False, False)]
+    assert collected == [0, 1]  # before the save thread and before the launch thread
+    assert gc.isenabled()
 
 
 def test_window_opens_in_the_middle_of_the_primary_screen_and_cannot_be_resized(window):

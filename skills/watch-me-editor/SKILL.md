@@ -37,6 +37,12 @@ The GUI must survive the command returning. Respect the host's permissions and
 existing approvals. If blocked, use the host's supported local execution or configured
 local MCP route. Do not request approval again when it is already granted.
 
+If `wait --editor` returns `closed` with `reason: ended_with_command`, the host stopped
+the editor together with the command that started it: the user did **not** close it.
+Run the launcher once more with the arguments in `next`
+(`edit --detach --start outside ...`) and wait on the new `editor_session`. If that ends
+the same way, or its result carries `start_note`, use the MCP route or tell the user.
+
 ## 2. Open the editor ("Edit Watch Me") and wait for Process
 
 Allow at least 60 seconds in the host tool for a 45-second application wait, or

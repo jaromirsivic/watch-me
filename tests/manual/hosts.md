@@ -190,3 +190,5 @@ copy the exact text (the agent's tool output or the host's message), not a summa
 | O9 | Acted after Process (hello.txt exists); did nothing after closing the editor | | | | |
 | O10 | Plugin install: worked / exact error; first run: network or sandbox prompt, duration | | | | |
 | O11 | MCP (required): window stayed open; `watch_me_wait` ended early after N s | | | | |
+| O12 | `watch-me doctor` run by the agent: the `process` part (`chain`, `host_job`, `window_start`), copied whole | | | | |
+| O13 | `start` and `start_note` in the result of `run --detach`; did `wait` return `WINDOW_ENDED_WITH_COMMAND`; did the second start (`--start outside`) stay open; after that, does a new `Start Watch Me` report `"start": "outside"` at once | | | | |

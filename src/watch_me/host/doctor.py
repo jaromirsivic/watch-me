@@ -30,8 +30,9 @@ from watch_me.core.config import (
 )
 from watch_me.core.model_info import MODEL_SHA256, MODEL_SIZE, MODEL_SIZE_TEXT, MODEL_URL
 from watch_me.core.screens import assign_screen_ids
+from watch_me.host import window_start
 from watch_me.host.downloads import DownloadError, download_file, file_digest
-from watch_me.platform import get_platform
+from watch_me.platform import get_platform, windows_jobs
 from watch_me.transcribe.ffmpeg import (
     FfmpegNotFound,
     ensure_ffmpeg,
@@ -69,6 +70,7 @@ class DoctorReport:
     config_path: Path | None = None
     state_root: Path | None = None
     state_reason: str = ""
+    process: dict[str, Any] | None = None  # see process_info; never part of ``ok``
 
     def add(self, check: Check) -> Check:
         self.checks.append(check)
@@ -87,6 +89,7 @@ class DoctorReport:
             "config_path": str(self.config_path) if self.config_path else None,
             "state_root": str(self.state_root) if self.state_root else None,
             "state_reason": self.state_reason,
+            "process": self.process,
         }
 
 
@@ -388,6 +391,25 @@ def check_config(report: DoctorReport) -> Check:
     return Check("config", True, f"{path} {state}")
 
 
+def process_info() -> dict[str, Any] | None:
+    """Diagnostics, not a check: in which job object this command runs, for a manual
+    test in each host. A host may stop every process of a command when it ends (see
+    :mod:`watch_me.host.window_start`); the chain of ancestors, the limits of the host's
+    job and the remembered start mode show what to expect. ``None`` outside Windows;
+    ``{"error": ...}`` instead of an exception - it never fails the doctor."""
+    try:
+        if not windows_jobs.supported():
+            return None
+        return {
+            # launcher scripts and shells come first: long enough to reach the host
+            "chain": windows_jobs.process_chain(limit=12),
+            "host_job": windows_jobs.host_job(),
+            "window_start": window_start.remembered(),
+        }
+    except Exception as exc:  # noqa: BLE001 - diagnostics must never break the doctor
+        return {"error": f"{type(exc).__name__}: {exc}"}
+
+
 # Entry point ----------------------------------------------------------------------
 
 
@@ -410,6 +432,7 @@ def run_doctor(config: Config, fix: bool = False, download_model: bool = False) 
     report.add(check_live_transcription(config))
     report.add(check_recording_folder(config))
     report.add(check_config(report))
+    report.process = process_info()  # diagnostics only: never changes ``ok``
     return report.to_dict()
 
 
@@ -421,5 +444,6 @@ __all__ = [
     "Check",
     "DoctorReport",
     "model_status",
+    "process_info",
     "run_doctor",
 ]

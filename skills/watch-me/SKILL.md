@@ -37,6 +37,12 @@ The GUI must survive the command returning. Respect the host's permissions and
 existing approvals. If blocked, use the host's supported local execution or configured
 local MCP route. Do not request approval again when it is already granted.
 
+If `wait` ends with `error_code: WINDOW_ENDED_WITH_COMMAND`, the host stopped the window
+together with the command that started it; the user did nothing and nothing was
+recorded. Run the launcher once more with the arguments in `next`
+(`run --detach --start outside`) and wait on the new session. If that ends the same
+way, or its result carries `start_note`, use the MCP route or tell the user.
+
 ## 2. Start a session
 
 1. Run `run --detach`. The result contains `session_id`. Tell the user in one line that

@@ -72,6 +72,26 @@ def setup_logging(level: str) -> None:
     )
 
 
+def redirect_output(path: Path) -> None:
+    """Send stdout, stderr and the dump of a fatal error of this process to ``path``.
+
+    For a window started without inherited handles (``--log-file``, see
+    :mod:`watch_me.platform.outside_start`): ``pythonw.exe`` has no stdout or stderr
+    then, so the log, a traceback and the final JSON would be lost."""
+    import faulthandler
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    # Lives as long as the process: no context manager.
+    stream = open(path, "a", encoding="utf-8", errors="backslashreplace", buffering=1)  # noqa: SIM115
+    sys.stdout = sys.stderr = stream
+    faulthandler.enable(stream)
+    for descriptor in (1, 2):  # native code (Qt, PortAudio) writes to the descriptors
+        try:
+            os.dup2(stream.fileno(), descriptor)
+        except OSError:
+            pass
+
+
 def attach_file_log(path: Path) -> logging.Handler:
     path.parent.mkdir(parents=True, exist_ok=True)
     handler = logging.FileHandler(path, encoding="utf-8")
@@ -211,7 +231,9 @@ def cmd_run(args: argparse.Namespace) -> dict[str, Any]:
 
     cfg = _load(args)
     try:
-        info = launch_control_window(cfg, _config_file(args))
+        info = launch_control_window(
+            cfg, _config_file(args), start=args.start, from_command=args.detach
+        )
     except SessionError as exc:
         raise CliError(exc.code, str(exc)) from exc
     result = info.to_dict()
@@ -658,7 +680,14 @@ def cmd_edit(args: argparse.Namespace) -> dict[str, Any]:
     cfg = _load(args)
     try:
         if args.detach:
-            return launch_editor(cfg, args.session, _config_file(args), args.recording_session)
+            return launch_editor(
+                cfg,
+                args.session,
+                _config_file(args),
+                args.recording_session,
+                start=args.start,
+                from_command=True,
+            )
         from watch_me.editor.app import run_editor
 
         code = run_editor(
@@ -751,6 +780,19 @@ def cmd_version(_args: argparse.Namespace) -> dict[str, Any]:
 # Parser ----------------------------------------------------------------------
 
 
+def _add_start_option(parser: argparse.ArgumentParser) -> None:
+    from watch_me.host.window_start import AUTO, START_CHOICES
+
+    parser.add_argument(
+        "--start",
+        choices=START_CHOICES,
+        default=AUTO,
+        help="with --detach: start the window as a child of this command (direct) or "
+        "outside the host's processes (outside, Windows); auto: direct unless a window "
+        "once ended together with its command on this computer",
+    )
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="watch-me",
@@ -760,6 +802,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--config", help="path to config.json (default: the state folder, see `config path`)"
     )
+    # internal: a window started without inherited handles writes its output here
+    parser.add_argument("--log-file", help=argparse.SUPPRESS)
     sub = parser.add_subparsers(dest="command", required=True)
 
     p = sub.add_parser("version", help="show the plugin version")
@@ -770,6 +814,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument(
         "--timeout", type=float, help="without --detach: give up waiting after N seconds"
     )
+    _add_start_option(p)
     p.set_defaults(func=cmd_run)
 
     p = sub.add_parser("wait", help="wait until a session is final or the timeout elapses")
@@ -887,6 +932,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--session", help="recording to select (default: the newest)")
     p.add_argument("--editor-session", help=argparse.SUPPRESS)  # internal: event file
     p.add_argument("--recording-session", help=argparse.SUPPRESS)  # internal: editing session
+    _add_start_option(p)
     p.set_defaults(func=cmd_edit)
 
     p = sub.add_parser("config", help="read or change config.json")
@@ -961,6 +1007,8 @@ def main(argv: list[str] | None = None) -> int:
     use_utf8_streams()
     parser = build_parser()
     args = parser.parse_args(argv)
+    if args.log_file:
+        redirect_output(Path(args.log_file))
     setup_logging(args.log_level)
     try:
         result = args.func(args)

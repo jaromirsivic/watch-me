@@ -61,6 +61,7 @@ from PySide6.QtWidgets import (
 
 from watch_me.capture.recorder import low_disk_message
 from watch_me.core.timeline import format_timestamp
+from watch_me.editor.workers import automatic_gc_paused, collect_garbage
 from watch_me.host.controller import SessionController
 from watch_me.host.editor_launcher import launch_editor
 
@@ -124,6 +125,7 @@ class ProcessingWorker(QObject):
         super().__init__()
         self._controller = controller
 
+    @automatic_gc_paused()  # no cyclic collection on this thread (see editor/workers.py)
     def run(self) -> None:
         try:
             final_dir = self._controller.process()
@@ -142,11 +144,16 @@ class EditorLaunchWorker(QObject):
         self.controller = controller
         self.config_file = config_file
 
+    @automatic_gc_paused()  # as in ProcessingWorker
     def run(self):
         try:
             session_id = self.controller.paths.session_id
             result = launch_editor(
-                self.controller.config, session_id, self.config_file, recording_session=session_id
+                self.controller.config,
+                session_id,
+                self.config_file,
+                recording_session=session_id,
+                start="direct",  # this window already runs where the editor has to
             )
         except Exception as exc:
             self.failed.emit(exc)
@@ -210,6 +217,11 @@ class ControlWindow(QWidget):
         grid = QGridLayout()
         grid.setHorizontalSpacing(8)
         grid.setVerticalSpacing(6)
+        # Into the window's layout before the buttons go in: a widget added to a layout
+        # that has no window yet stays owned by Python although Qt makes it a child of
+        # the window, and such a pair is deleted twice when the cyclic collector runs
+        # off the GUI thread (see watch_me.editor.workers).
+        layout.addLayout(grid)
 
         self.record_button = QPushButton(record_icon(), "Record")
         self.record_button.setToolTip(RECORD_TOOLTIP)
@@ -263,7 +275,6 @@ class ControlWindow(QWidget):
         self.draw_button.toggled.connect(self._toggle_overlay)
         self.draw_button.hide()
         grid.addWidget(self.draw_button, 1, 2)
-        layout.addLayout(grid)
         self._grid = grid
         self._apply_icons()
         self._equalize_buttons()
@@ -794,6 +805,7 @@ class ControlWindow(QWidget):
         self.status_label.setText("Opening the Watch Me Editor...")
         self._worker.finished.connect(self._on_processed)
         self._worker.failed.connect(self._on_processing_failed)
+        collect_garbage()  # closed dialogs die here, on the GUI thread (see editor/workers.py)
         self._thread.start()
 
     def _halt_recording(self, title: str, text: str) -> None:
@@ -836,6 +848,7 @@ class ControlWindow(QWidget):
         self._worker.finished.connect(self._on_editor_opened)
         self._worker.failed.connect(self._on_editor_failed)
         self._thread.finished.connect(self._worker.deleteLater)
+        collect_garbage()  # see _begin_processing
         self._thread.start()
 
     def _on_editor_failed(self, exc) -> None:

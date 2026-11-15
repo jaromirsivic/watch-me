@@ -17,3 +17,4 @@ build/
 *.log
 recordings/
 tests/results/
+window-start.json

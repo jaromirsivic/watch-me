@@ -7,6 +7,9 @@ import subprocess
 import sys
 from pathlib import Path
 
+# ERROR_ACCESS_DENIED: CreateProcess fails with it when the job forbids a breakaway.
+_WINERROR_ACCESS_DENIED = 5
+
 
 def pid_alive(pid: int) -> bool:
     """True when a process with ``pid`` exists (best effort, no permissions needed)."""
@@ -84,7 +87,10 @@ def neutral_cwd() -> Path | None:
 
 def spawn_detached(args: list[str], log_path: Path, cwd: Path | None = None) -> int:
     """Start a process that outlives the caller; stdout/stderr go to ``log_path``.
-    Without ``cwd`` it runs in :func:`neutral_cwd`, not in the caller's directory."""
+    Without ``cwd`` it runs in :func:`neutral_cwd`, not in the caller's directory.
+    On Windows a host may run its commands in a job object that ends every process in
+    it: where the job allows it the child breaks away from it, where it does not the
+    start is repeated without the breakaway flag."""
     log_path.parent.mkdir(parents=True, exist_ok=True)
     log = open(log_path, "ab")  # noqa: SIM115 - handed to the child
     kwargs: dict[str, object] = {
@@ -93,16 +99,24 @@ def spawn_detached(args: list[str], log_path: Path, cwd: Path | None = None) -> 
         "stderr": log,
         "cwd": cwd if cwd is not None else neutral_cwd(),
     }
-    if sys.platform.startswith("win"):
-        kwargs["creationflags"] = (
+    windows = sys.platform.startswith("win")
+    if windows:
+        flags = (
             subprocess.CREATE_NEW_PROCESS_GROUP
             | subprocess.DETACHED_PROCESS
             | subprocess.CREATE_NO_WINDOW
         )
+        kwargs["creationflags"] = flags | subprocess.CREATE_BREAKAWAY_FROM_JOB
     else:
         kwargs["start_new_session"] = True
     try:
-        proc = subprocess.Popen(args, **kwargs)  # type: ignore[arg-type]
+        try:
+            proc = subprocess.Popen(args, **kwargs)  # type: ignore[arg-type]
+        except OSError as exc:
+            if not windows or getattr(exc, "winerror", None) != _WINERROR_ACCESS_DENIED:
+                raise
+            kwargs["creationflags"] = flags
+            proc = subprocess.Popen(args, **kwargs)  # type: ignore[arg-type]
     finally:
         log.close()
     return proc.pid

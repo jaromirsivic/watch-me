@@ -169,7 +169,20 @@ reuse existing approvals. Permission denial is not a missing dependency:
   no sandbox for Windows.
 - **Claude Code** runs the command directly unless you enabled its sandbox.
 
-If the window still does not appear or closes with the command, use the MCP server
+Outside a sandbox a host may still stop every process a command leaves behind when the
+command ends (on Windows: a job object that is closed). Watch Me notices that instead of
+guessing it: a window that ended together with the command that started it makes the
+next `wait` return `WINDOW_ENDED_WITH_COMMAND` (the editor: `closed` with
+`reason: ended_with_command`) and, in `next`, the start command with `--start outside`.
+That starts the window outside the host's processes, through Windows PowerShell and WMI
+(about 0.2 to 0.5 s slower), and the finding is remembered in `window-start.json` of the
+state folder: later starts go that way at once, in every host on this computer. Delete
+the file, or pass `--start direct`, to go back. A window started outside stays open when
+the host is closed. `watch-me doctor` shows under `process` in which job a command of
+the host runs and what is remembered.
+
+If the window still does not appear or closes with the command (PowerShell or WMI may be
+blocked by a policy: the start result then carries `start_note`), use the MCP server
 (below) for that host.
 
 ### Skill links
@@ -399,6 +412,10 @@ WATCH_ME_INTEGRATION=1 uv run pytest tests/integration/test_recording.py tests/i
   command has returned (Codex, Cursor): the command most likely ran inside
   the host's sandbox. Approve running it outside the sandbox when the host asks, or use
   the MCP server for that host (section 3).
+- `WINDOW_ENDED_WITH_COMMAND` (the editor: `closed` with `reason: ended_with_command`):
+  the host stopped the window together with the command that started it. Start it once
+  more with the arguments in `next` (`--start outside`); see "What the window needs from
+  the host" above.
 - `ALREADY_RUNNING`: a control window is open; finish or close it, or run
   `watch-me sessions` to see it.
 - `WINDOW_EXITED`: the window process ended; read `ui.log` (window output, stays in

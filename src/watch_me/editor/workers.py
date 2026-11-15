@@ -1,13 +1,22 @@
-"""Keeps Python's cyclic garbage collector away from the editor's worker threads.
+"""Keeps Python's cyclic garbage collector away from the worker threads of the windows.
 
 A cyclic collection runs on whichever thread happens to allocate when the threshold
-is reached. On a ``QThreadPool`` worker it finalises every unreachable cycle in the
-process, including the Python wrappers of closed windows and dialogs, and a Qt widget
-destroyed off the GUI thread is undefined behaviour (an access violation on Windows,
-seen in CI while a recording was loading). Two measures keep collections on the GUI
-thread: :func:`collect_garbage` right before a worker is started, and
-:func:`automatic_gc_paused` around the body of every short worker job, which switches
-automatic collection off while any such job runs and back on when the last one ends.
+is reached. On a worker thread it finalises every unreachable cycle in the process,
+including the Python wrappers of closed windows and dialogs. PySide does not delete a
+widget there: it queues the C++ pointer and deletes it later on the GUI thread. That
+goes wrong when Python owns a widget and one of its child widgets at the same time
+(a widget put into a layout that had no window yet stays owned by Python): deleting
+the parent deletes the child, and the queue then deletes the child a second time (a
+pure virtual call or an access violation, seen in CI while a recording was loading
+and in the recorder's tests while a recording was saved). Other ``QObject``\\ s owned
+by Python are deleted on the collecting thread itself. Collected on the GUI thread,
+the same garbage is harmless.
+
+Two measures keep collections on the GUI thread: :func:`collect_garbage` right before
+a worker is started, and :func:`automatic_gc_paused` around the body of every worker
+job (the editor's pool jobs, the recorder's save and editor-launch threads), which
+switches automatic collection off while any such job runs and back on when the last
+one ends.
 """
 
 from __future__ import annotations

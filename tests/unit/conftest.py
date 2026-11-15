@@ -2,7 +2,21 @@
 
 from __future__ import annotations
 
+import gc
+
 import pytest
+
+
+@pytest.fixture(autouse=True)
+def _garbage_dies_on_the_main_thread():
+    """The windows and dialogs a test leaves behind are collected here, on the main
+    (GUI) thread, after the test's other fixtures closed them. Left to the automatic
+    collector they would die in whichever thread allocates next - in a later test
+    that may be a worker thread, where PySide deletes a widget owned together with
+    its child twice and the whole test process ends (see ``watch_me.editor.workers``).
+    First in this file: set up first, so torn down after every other fixture."""
+    yield
+    gc.collect()
 
 
 @pytest.fixture(autouse=True)

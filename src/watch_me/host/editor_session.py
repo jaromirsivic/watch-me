@@ -95,7 +95,11 @@ def write_editor_event(
 
 
 def read_editor_event(path: Path) -> dict[str, Any]:
-    """The current event; a dead editor (``pid`` recorded, process gone) counts as closed."""
+    """The current event; a dead editor (``pid`` recorded, process gone) counts as closed.
+
+    An editor that ended together with the command that started it (the host stopped
+    it, the user closed nothing) carries ``reason`` and, in ``next``, the command that
+    starts it outside the host's processes."""
     try:
         data = read_json_with_retry(path)
     except FileNotFoundError:
@@ -106,7 +110,29 @@ def read_editor_event(path: Path) -> dict[str, Any]:
     if data.get("event") == "open" and isinstance(pid, int) and pid > 0 and not pid_alive(pid):
         data["event"] = "closed"
         data["message"] = f"the editor process (pid {pid}) ended without Process"
+        _note_end_with_command(path, data)
     return data
+
+
+def _note_end_with_command(path: Path, data: dict[str, Any]) -> None:
+    """Mark a dead editor that the host stopped together with its starting command."""
+    from watch_me.host import startup, window_start
+
+    request = startup.editor_request(path)
+    if not startup.ended_with_command(request):
+        return
+    session = data.get("session_id")
+    if not isinstance(session, str) or not session:
+        try:
+            session = startup.read_request(request).get("session_id")
+        except (OSError, ValueError):
+            session = None
+    data["reason"] = window_start.ENDED_WITH_COMMAND_REASON
+    data["message"] = window_start.ENDED_WITH_COMMAND_MESSAGE
+    data["next"] = "watch-me edit --detach --start outside" + (
+        f" --session {session}" if isinstance(session, str) and session else ""
+    )
+    window_start.remember_ended_with_command(window="editor", session_id=session)
 
 
 def wait_for_editor(path: Path, timeout_s: float) -> dict[str, Any]:
@@ -122,8 +148,9 @@ def wait_for_editor(path: Path, timeout_s: float) -> dict[str, Any]:
         if event in ("process", "closed"):
             from watch_me.host.startup import cleanup_completed, editor_request
 
-            cleanup_completed(editor_request(path))
-            keys = ("event", "session_id", "crop", "instructions", "message")
+            if "reason" not in data:  # the evidence of such an end stays for later calls
+                cleanup_completed(editor_request(path))
+            keys = ("event", "session_id", "crop", "instructions", "message", "reason", "next")
             result = {k: data[k] for k in keys if k in data}
             if event == "process":
                 result.setdefault("instructions", "")

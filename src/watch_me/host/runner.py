@@ -46,11 +46,20 @@ from watch_me.host.agent_output import DEFAULT_INLINE_CHARS, fits_inline
 from watch_me.host.errors import HostError
 from watch_me.host.readiness import require_ready
 from watch_me.host.waiting import timeout_seconds
+from watch_me.host.window_start import (
+    AUTO,
+    ENDED_WITH_COMMAND,
+    ENDED_WITH_COMMAND_MESSAGE,
+    remember_ended_with_command,
+    resolve,
+    start_window,
+)
 from watch_me.platform.process import pid_alive, python_command, spawn_detached
 
 log = logging.getLogger(__name__)
 
 STARTUP_GRACE_S = 30.0
+RUN_OUTSIDE_COMMAND = "watch-me run --detach --start outside"  # `next` after such an end
 POLL_INTERVAL_S = 0.5
 SUMMARY_MESSAGE_CHARS = 200  # `sessions`: a longer message is cut
 # `frames`: its JSON is shortened step by step while it is longer than this. `--window`
@@ -120,25 +129,43 @@ class LaunchInfo:
     state_file: Path
     pid: int
     recording_folder: Path
+    start: str = "direct"  # how the window was started (see host/window_start.py)
+    start_note: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        data = {
             "session_id": self.session_id,
             "state_file": str(self.state_file),
             "pid": self.pid,
             "recording_folder": str(self.recording_folder),
+            "start": self.start,
         }
+        if self.start_note:
+            data["start_note"] = self.start_note
+        return data
 
 
-def launch_control_window(config: Config, config_file: Path | None = None) -> LaunchInfo:
+def launch_control_window(
+    config: Config,
+    config_file: Path | None = None,
+    start: str = AUTO,
+    from_command: bool = False,
+) -> LaunchInfo:
     if active_session(config) is None:
         require_ready(config)
     with startup.launch_guard(config, "recorder"):
-        return _launch_control_window_ready(config, config_file)
+        return _launch_control_window_ready(config, config_file, start, from_command)
 
 
-def _launch_control_window_ready(config: Config, config_file: Path | None = None) -> LaunchInfo:
-    """Start the control window in a detached process and return immediately."""
+def _launch_control_window_ready(
+    config: Config,
+    config_file: Path | None = None,
+    start: str = AUTO,
+    from_command: bool = False,
+) -> LaunchInfo:
+    """Start the control window in a detached process and return immediately. ``start``
+    says how (``auto``, ``direct``, ``outside``: see :mod:`watch_me.host.window_start`);
+    ``from_command``: the caller is a command that ends right after this (``--detach``)."""
     running = active_session(config)
     if running is not None:
         paths, state = running
@@ -159,7 +186,15 @@ def _launch_control_window_ready(config: Config, config_file: Path | None = None
         message="Starting the control window.",
     )
     write_state(paths.state_path, state)
-    request = startup.create_request(paths.work_dir / "startup.json", config, "run", session_id)
+    mode = resolve(start)
+    request = startup.create_request(
+        paths.work_dir / "startup.json",
+        config,
+        "run",
+        session_id,
+        start=mode,
+        owner=startup.OWNER_COMMAND if from_command else startup.OWNER_PROCESS,
+    )
     args = python_command(
         "-m",
         "watch_me",
@@ -172,7 +207,7 @@ def _launch_control_window_ready(config: Config, config_file: Path | None = None
         utf8=False,
     )
     try:
-        pid = spawn_detached(args, paths.work_dir / UI_LOG_FILE_NAME)
+        started = start_window(args, paths.work_dir / UI_LOG_FILE_NAME, mode, direct=spawn_detached)
     except OSError as exc:
         state.status = Status.FAILED
         state.error_code = "START_FAILED"
@@ -185,12 +220,16 @@ def _launch_control_window_ready(config: Config, config_file: Path | None = None
             session_id=session_id,
             log=str(paths.work_dir / UI_LOG_FILE_NAME),
         ) from exc
+    if started.start != mode:
+        startup.record_start(request, started.start)
     ready = startup.wait_ready(
-        request, pid, paths.work_dir / UI_LOG_FILE_NAME, session_id=session_id
+        request, started.pid, paths.work_dir / UI_LOG_FILE_NAME, session_id=session_id
     )
-    pid = ready.get("pid", pid)
-    log.info("control window started: session %s pid %s", session_id, pid)
-    return LaunchInfo(session_id, paths.state_path, pid, config.recording_folder)
+    pid = ready.get("pid", started.pid)
+    log.info("control window started (%s): session %s pid %s", started.start, session_id, pid)
+    return LaunchInfo(
+        session_id, paths.state_path, pid, config.recording_folder, started.start, started.note
+    )
 
 
 # Following --------------------------------------------------------------------
@@ -217,12 +256,21 @@ def session_status(paths: SessionPaths) -> dict[str, Any]:
                     "The editor process ended without Process; the recording is kept "
                     "but nothing should be done. Open it again with Edit Watch Me."
                 )
+            elif startup.ended_with_command(paths.work_dir / "startup.json"):
+                # The host stopped the window with the command that started it: say so,
+                # and start outside the host's processes from now on.
+                state.status = Status.FAILED
+                state.error_code = ENDED_WITH_COMMAND
+                state.message = ENDED_WITH_COMMAND_MESSAGE
+                remember_ended_with_command(window="recorder", session_id=paths.session_id)
             else:
                 state.status = Status.FAILED
                 state.error_code = "WINDOW_EXITED"
                 state.message = "The control window process ended unexpectedly."
             write_state(paths.state_path, state)
             data = state.to_dict()
+    if data.get("error_code") == ENDED_WITH_COMMAND:
+        data["next"] = RUN_OUTSIDE_COMMAND
     data["state_file"] = str(paths.state_path)
     return data
 
