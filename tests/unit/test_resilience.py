@@ -214,9 +214,10 @@ def test_audio_writer_that_cannot_write_reports_it_and_stop_returns(tmp_path: Pa
             pass
 
     audio._wave = FullDisk()  # type: ignore[assignment]
+    audio._clock.start()  # the track's own clock: blocks before it are not written
     audio._writer = threading.Thread(target=audio._write_loop, daemon=True)
     audio._writer.start()
-    block = np.zeros((1024, 1), dtype=np.int16)
+    block = np.zeros(1024, dtype=np.int16).tobytes()
     for _ in range(40):  # ten times the queue size: a dead writer would fill it
         audio._callback(block, 1024, None, None)
         time.sleep(0.002)

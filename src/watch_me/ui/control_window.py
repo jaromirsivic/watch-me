@@ -92,6 +92,8 @@ PAUSE_SHORTCUT = "Ctrl+Alt+P"
 MUTE_MIC_SHORTCUT = "Ctrl+Alt+M"
 MUTE_PC_SHORTCUT = "Ctrl+Alt+L"
 STOP_LABEL = "Stop"
+AUDIO_WARNING_MARK = "⚠ "  # in front of the status line while a sound device is silent
+AUDIO_WARNING_STYLE = "color: #E5484D; font-weight: 600;"
 PAUSE_LABEL = "Pause"
 RESUME_LABEL = "Resume"
 KEYPOINT_LABEL = "Keypoint"
@@ -174,6 +176,8 @@ class ControlWindow(QWidget):
     ) -> None:
         super().__init__()
         self._tray: QSystemTrayIcon | None = None
+        # A sound device that delivers nothing while recording (recorder.audio_warning).
+        self._audio_warning: str | None = None
         self.controller = controller
         self._on_finished = on_finished
         self._overlay_factory = overlay_factory
@@ -408,6 +412,7 @@ class ControlWindow(QWidget):
         and Draw in the second while recording."""
         self.settings_button.setEnabled(not recording)
         self.settings_button.setVisible(not recording)
+        self._note_audio_warning(None)  # a new recording, or none: nothing to warn about
         self._reset_keypoint_button()
         self.keypoint_button.setVisible(recording)
         self._apply_record_row_widths(recording)
@@ -785,6 +790,7 @@ class ControlWindow(QWidget):
         self._worker = ProcessingWorker(self.controller)
         self._worker.moveToThread(self._thread)
         self._thread.started.connect(self._worker.run)
+        self._note_audio_warning(None)
         self.status_label.setText("Opening the Watch Me Editor...")
         self._worker.finished.connect(self._on_processed)
         self._worker.failed.connect(self._on_processing_failed)
@@ -805,6 +811,7 @@ class ControlWindow(QWidget):
             self.controller.stop_recording()
         except Exception:  # noqa: BLE001 - saving below reports what is wrong
             log.exception("stopping the recording failed")
+        self._note_audio_warning(None)
         self.status_label.setText(title)
         QMessageBox.warning(self, title, f"{text}\n\n{SAVED_NOTE}")
         self._halting = False
@@ -1146,7 +1153,31 @@ class ControlWindow(QWidget):
         keypoints = len(getattr(recorder, "keypoints", None) or ())
         if keypoints:
             second += f"  |  {keypoints} keypoint{'s' if keypoints != 1 else ''}"
+        warning = self._note_audio_warning(getattr(recorder, "audio_warning", None))
+        if warning:
+            # The part before " - trying ..." fits the line; the tooltip has all of it.
+            second = AUDIO_WARNING_MARK + warning.partition(" - trying")[0]
         self.status_label.setText(f"{first}\n{second}")
+
+    def _note_audio_warning(self, warning: str | None) -> str | None:
+        """Show that a sound device went silent (or is back). The recording goes on: the
+        status line turns red with the whole text as its tooltip, and when the warning
+        appears the taskbar button flashes - or the tray icon says it, when the window is
+        hidden there - because the user is looking at another application."""
+        if warning == self._audio_warning:
+            return warning
+        self._audio_warning = warning
+        self.status_label.setStyleSheet(AUDIO_WARNING_STYLE if warning else "")
+        self.status_label.setToolTip(warning or "")
+        if warning:
+            log.warning("shown to the user: %s", warning)
+            if self.in_tray and self._tray is not None:
+                self._tray.showMessage(
+                    "Watch Me", warning, QSystemTrayIcon.MessageIcon.Warning, 10_000
+                )
+            else:
+                QApplication.alert(self)
+        return warning
 
     # Close ------------------------------------------------------------------
 

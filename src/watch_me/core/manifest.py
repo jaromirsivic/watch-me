@@ -34,6 +34,12 @@ class AudioInfo:
     sample_rate: int = 0
     channels: int = 1
     duration_ms: int = 0
+    # How the track was kept on the recording clock: silence written for sound that never
+    # arrived, sound left out as a surplus, and the outages of the device
+    # ({from_ms, to_ms, reason, device}: silence in between, not the user's silence).
+    padded_ms: int = 0
+    dropped_ms: int = 0
+    gaps: list[dict[str, Any]] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -42,16 +48,23 @@ class AudioInfo:
             "sample_rate": self.sample_rate,
             "channels": self.channels,
             "duration_ms": self.duration_ms,
+            "padded_ms": self.padded_ms,
+            "dropped_ms": self.dropped_ms,
+            "gaps": [dict(gap) for gap in self.gaps],
         }
 
     @classmethod
     def from_dict(cls, data: dict[str, Any], default_file: str = AUDIO_FILE) -> AudioInfo:
+        gaps = data.get("gaps")
         return cls(
             file=data.get("file", default_file),
             device=data.get("device"),
             sample_rate=int(data.get("sample_rate", 0)),
             channels=int(data.get("channels", 1)),
             duration_ms=int(data.get("duration_ms", 0)),
+            padded_ms=int(data.get("padded_ms") or 0),
+            dropped_ms=int(data.get("dropped_ms") or 0),
+            gaps=[dict(g) for g in gaps if isinstance(g, dict)] if isinstance(gaps, list) else [],
         )
 
 

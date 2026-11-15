@@ -121,10 +121,13 @@ class RecordingClock:
     def ms_at(self, perf_counter_ns: int) -> int | None:
         """Recording time of a ``time.perf_counter_ns()`` stamp, also one taken in another
         process: the counter is system wide (QueryPerformanceCounter on Windows,
-        CLOCK_MONOTONIC elsewhere). ``None`` before :meth:`start` and for a stamp taken
-        while the clock was paused (nothing is recorded then)."""
+        CLOCK_MONOTONIC elsewhere). ``None`` before :meth:`start`, for a stamp taken
+        while the clock was paused and for one taken after :meth:`stop` (nothing is
+        recorded then)."""
         with self._lock:
             if self._start_ns is None:
+                return None
+            if self._stop_ns is not None and perf_counter_ns > self._stop_ns:
                 return None
             if self._paused_at_ns is not None and perf_counter_ns >= self._paused_at_ns:
                 return None

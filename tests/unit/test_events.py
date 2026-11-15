@@ -126,6 +126,7 @@ def test_timeline_merges_speech_shapes_clipboard_cursor_and_keypoints(tmp_path: 
         "keypoints": 1,
         "pauses": 0,
         "mutes": 0,
+        "audio_gaps": 0,
         "speech": 2,
     }
     assert lines(result) == [

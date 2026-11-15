@@ -416,5 +416,13 @@ WATCH_ME_INTEGRATION=1 uv run pytest tests/integration/test_recording.py tests/i
   the last subtitle); `watch-me setup` downloads a missing model or FFmpeg.
 - No audio device: the Record button reports the error; choose another input in
   Settings or check the operating system's input devices.
+- `⚠ No sound from the microphone` in the status line while recording: the input device
+  stopped delivering sound (a headset unplugged, a dock removed, Bluetooth switched off).
+  The recording goes on; the microphone track holds silence there and Watch Me opens the
+  configured input - or the system default input - again every two seconds. Plug the
+  device back in or let the default input take over; the warning goes away when sound
+  arrives. The outage is in `manifest.json` (`audio.gaps`) and in the agent's timeline
+  (`MIC LOST` / `MIC BACK`). The sound of the computer follows the default output in the
+  same way (`PC AUDIO LOST` / `PC AUDIO BACK` when no output can be recorded).
 - Linux: `XDG_SESSION_TYPE=wayland` is refused; log in to an X11 session. Transparent
   overlay windows need a compositor.

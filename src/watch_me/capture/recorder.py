@@ -146,6 +146,9 @@ class RecordingSummary:
                 sample_rate=self.audio.sample_rate,
                 channels=self.audio.channels,
                 duration_ms=self.audio.duration_ms,
+                padded_ms=self.audio.padded_ms,
+                dropped_ms=self.audio.dropped_ms,
+                gaps=[dict(gap) for gap in self.audio.gaps],
             )
         computer = None
         if self.computer_audio:
@@ -155,6 +158,9 @@ class RecordingSummary:
                 sample_rate=self.computer_audio.sample_rate,
                 channels=self.computer_audio.channels,
                 duration_ms=self.computer_audio.duration_ms,
+                padded_ms=self.computer_audio.padded_ms,
+                dropped_ms=self.computer_audio.dropped_ms,
+                gaps=[dict(gap) for gap in self.computer_audio.gaps],
             )
         return Manifest(
             session_id=self.session_id,
@@ -339,8 +345,7 @@ class Recorder:
         not recording or already paused."""
         if not self.running:
             return False
-        if self._audio is not None:
-            self._audio.paused = True
+        # The microphone needs no word: the clock has no time for the blocks of a pause.
         if self._computer is not None:
             self._computer.pause()
         if not self.clock.pause():
@@ -370,8 +375,6 @@ class Recorder:
         return True
 
     def _resume_tracks(self) -> None:
-        if self._audio is not None:
-            self._audio.paused = False
         if self._computer is not None:
             self._computer.resume()
 
@@ -471,6 +474,17 @@ class Recorder:
             return self._error
         return self._audio.error if self._audio is not None else None
 
+    @property
+    def audio_warning(self) -> str | None:
+        """What the user should see while the recording goes on: a sound device that
+        delivers nothing (the microphone first). ``None`` while all is fine; unlike
+        :attr:`error` this never ends the recording."""
+        for track in (self._audio, self._computer):
+            warning = getattr(track, "warning", None)
+            if warning:
+                return warning
+        return None
+
     # Manifest ---------------------------------------------------------------
 
     def _write_provisional_manifest(self) -> None:
@@ -545,7 +559,7 @@ class Recorder:
 
         if self._record_audio:
             self._audio = AudioRecorder(
-                self.paths.audio_path(self.paths.work_dir), self.config.audio_input
+                self.paths.audio_path(self.paths.work_dir), self.config.audio_input, self.clock
             )
         self._pool = ThreadPoolExecutor(max_workers=ENCODE_WORKERS, thread_name_prefix="encode")
         if self._audio is not None:

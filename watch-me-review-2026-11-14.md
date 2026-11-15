@@ -8,15 +8,17 @@ Předchozí revize `watch-me-review-2026-11-13.md` je o den starší. Co z ní v
 
 ## Stav po opravách (15. 11. 2026)
 
-Podle [plánu oprav spouštěčů](implementation-plan-launcher-fixes.md). Změny jsou v commitu `c688bbb`.
+Podle [plánu oprav spouštěčů](implementation-plan-launcher-fixes.md). A4 až A6 jsou v commitu `c688bbb`; B1 a B2 podle [plánu pro zvuk](implementation-plan-audio-clock.md).
 
 | Nález | Stav | Co se změnilo |
 | --- | --- | --- |
 | A4 | vyřešeno | Návod `agent-startup.md` leží v `references/` obou skillů (dvě shodné kopie, shodu i odkazy v `SKILL.md` hlídá test) a `docs/agent-startup.md` zanikl. Chyby `UV_MISSING`, `PYTHON_MISSING` a `ENVIRONMENT_INVALID` nesou pole `root` (kde spustit `uv sync`) a `help` (cesta k návodu). Na Windows je píše PowerShell v UTF-8, bez PowerShellu zůstává původní text bez cest. Pokus: přes junction na `skills\watch-me` soubor `references\agent-startup.md` existuje; kořen se jménem `space ž` se v odpovědi vrátil beze změny z `.bat` i z `.sh`. |
 | A5 | vyřešeno | `uv` se hledá jen tehdy, když chybí interpret v `.venv`; pořadí chyb při chybějícím prostředí se nezměnilo. `launch.sh` v Git Bashi použije `.venv/Scripts/python.exe`. Pokus: `watch-me.bat version` i `watch-me.sh version` vracejí kód 0 s `uv` v `PATH` i bez něj. |
 | A6 | vyřešeno | Všech sedm příkazů podřízeného Pythonu skládá `platform/process.py::python_command` a vždy přidá `-I`; test hlídá, že jinde v balíčku ručně složený příkaz není. Okna běží v domovské složce uživatele, cesta ke konfiguraci se předává absolutní a relativní cesty v `config.json` se vztahují ke složce toho souboru. Pokus se skutečným oknem: `run --detach` ze složky se zastiňujícím `argparse.py` a s relativním `--config` otevřel okno (`wait` vrátil `ready`), složku šlo při otevřeném okně smazat a okno se po zavření ukončilo stavem `cancelled`. |
+| B1 | vyřešeno (plán [mikrofon na hodinách nahrávky](implementation-plan-audio-clock.md)) | Vstupní proud má vyrovnávací paměť 0,5 s, takže vzorky při vytíženém procesoru nemizí. Každý blok dostane čas z hodin nahrávky; bloky před startem osy, v pauze a po zastavení se zahodí, ztráta se doplní tichem a zapíše do manifestu (`audio.padded_ms`, `dropped_ms`). Měření na skutečném mikrofonu, 20 s: bez zátěže +190 ms → 0 ms, se čtyřmi vlákny držícími GIL −8 424 ms → 0 ms. Zjištění cestou: PortAudio na WASAPI ztrátu vzorků nehlásí žádným příznakem. |
+| B2 | vyřešeno v kódu, na skutečném zařízení nevyzkoušeno | Po 2 s bez zvuku z mikrofonu se stopa doplňuje tichem, stavový řádek ovládacího okna zčervená a každé 2 s se zkouší otevřít nastavený nebo výchozí vstup. Výpadek je v manifestu (`audio.gaps`) a v časové ose (`MIC LOST` / `MIC BACK`). Zvuk počítače přechází na nový výchozí výstup a nefunkční výstup zkouší znovu (`PC AUDIO LOST` / `PC AUDIO BACK`). Ověřeno jen s falešným zařízením v testech; odpojení skutečné náhlavní soupravy, Bluetooth a změna výstupu čekají na ruční zkoušku (plán, Z10). |
 
-Jednotkové testy na Windows: 1137 prošlo, lint čistý. Neověřeno: nahrávka s řečí, hák myši, UI Automation a přepis jako podřízené procesy s `-I` ve skutečné relaci (ruční zkouška L8 bod 4 v plánu), Codex, Cursor, Linux a macOS mimo CI. Ostatní nálezy jsou beze změny.
+Jednotkové testy na Windows po A4–A6: 1137 prošlo, lint čistý. Neověřeno: nahrávka s řečí, hák myši, UI Automation a přepis jako podřízené procesy s `-I` ve skutečné relaci (ruční zkouška L8 bod 4 v plánu), Codex, Cursor, Linux a macOS mimo CI. Ostatní nálezy jsou beze změny.
 
 ## Jak číst sloupec Ověření
 

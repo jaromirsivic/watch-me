@@ -71,7 +71,10 @@ LEGEND = (
     "PAUSE: the user paused the recording there; the paused time is cut out (nothing "
     "was recorded meanwhile, the timeline simply continues). MUTE / UNMUTE mic or "
     "computer: the user muted that audio track - it holds silence until UNMUTE, so no "
-    "speech there is intended, not a fault."
+    "speech there is intended, not a fault. MIC LOST / MIC BACK and PC AUDIO LOST / "
+    "PC AUDIO BACK: the microphone (or the sound of the computer) delivered nothing in "
+    "between - the device was unplugged or stopped - so that track holds silence there and "
+    "missing speech is not the user's silence."
 )
 # Added to the legend only when the lower narration track has subtitles in the range.
 LOWER_TRACK_LEGEND = (
@@ -144,6 +147,48 @@ def _mute_events(manifest: dict[str, Any], window: Crop, counts: dict[str, int])
             events.append(_Event(end, 6, f"{end} UNMUTE {track}"))
         counts["mutes"] = counts.get("mutes", 0) + 1
     counts.setdefault("mutes", 0)
+    return events
+
+
+def _gap_events(manifest: dict[str, Any], window: Crop, counts: dict[str, int]) -> list[_Event]:
+    """``LOST`` / ``BACK`` lines for the outages of the audio devices in ``window``.
+
+    The track holds silence in between. An outage that began before the range shows as
+    lost at the range start; one that lasts to the end of the recording has no BACK."""
+    events: list[_Event] = []
+    duration = int(manifest.get("recorded_duration_ms") or 0)
+    for key, label in (("audio", "MIC"), ("computer_audio", "PC AUDIO")):
+        track = manifest.get(key)
+        gaps = track.get("gaps") if isinstance(track, dict) else None
+        if not isinstance(gaps, list):
+            continue
+        for gap in gaps:
+            if not isinstance(gap, dict) or not isinstance(gap.get("from_ms"), int):
+                continue
+            start, to_ms = gap["from_ms"], gap.get("to_ms")
+            if isinstance(to_ms, int):
+                end = to_ms
+            elif duration:
+                end = duration
+            else:
+                end = window.end_ms
+            if end < window.start_ms or start > window.end_ms:
+                continue
+            returned = isinstance(to_ms, int) and to_ms < duration
+            device = gap.get("device")
+            source = f' from "{device}"' if isinstance(device, str) else ""
+            until = f"silence until {end}" if returned else "silence to the end of the recording"
+            if start < window.start_ms:
+                text = f"{window.start_ms} {label} LOST (no sound{source} since {start}; {until})"
+                events.append(_Event(window.start_ms, 6, text))
+            else:
+                events.append(_Event(start, 6, f"{start} {label} LOST (no sound{source}; {until})"))
+            if returned and end <= window.end_ms:
+                restored = gap.get("restored_device")
+                back = f' ("{restored}")' if isinstance(restored, str) else ""
+                events.append(_Event(end, 6, f"{end} {label} BACK{back}"))
+            counts["audio_gaps"] = counts.get("audio_gaps", 0) + 1
+    counts.setdefault("audio_gaps", 0)
     return events
 
 
@@ -770,6 +815,7 @@ def build_timeline(
     counts.setdefault("keypoints", 0)
     events.extend(_pause_events(manifest, window, counts))
     events.extend(_mute_events(manifest, window, counts))
+    events.extend(_gap_events(manifest, window, counts))
     counts["speech"] = len(segments)
     lower = sum(1 for s in segments if s.lower)
     if lower:

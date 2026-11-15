@@ -197,6 +197,23 @@ def test_status_line_shows_transcription_lag_on_the_first_line(window, controlle
     assert second.endswith("frames  |  1 keypoint")
 
 
+def test_a_silent_microphone_is_shown_and_the_recording_goes_on(window, controller):
+    window.record_button.click()
+    recorder = FakeRecorder.instances[-1]
+    text = "No sound from the microphone “Headset” - trying to reconnect. The recording goes on."
+    recorder.audio_warning = text
+    window._tick()
+    first, second = window.status_label.text().split("\n")
+    assert first.startswith("Recording ")
+    assert second == "⚠ No sound from the microphone “Headset”"
+    assert window.status_label.toolTip() == text and window.status_label.styleSheet()
+    assert window.record_button.text() == "Stop" and controller.recording  # not stopped
+    recorder.audio_warning = None  # the device is back
+    window._tick()
+    assert "frames" in window.status_label.text().split("\n")[1]
+    assert not window.status_label.styleSheet() and not window.status_label.toolTip()
+
+
 def test_draw_icon_uses_button_text_color(qtbot):
     from PySide6.QtGui import QColor
 

@@ -14,8 +14,14 @@ the track drifts more than :data:`DRIFT_TOLERANCE_S` from the clock. The time be
 :meth:`ComputerAudioRecorder.pause` and ``resume`` does not count (the recording cuts
 it out) and nothing is written meanwhile; ``muted`` writes silence of the same length.
 
-A failure of this track never stops the recording: it is logged, the track ends there
-(padded with silence up to the stop) and the microphone and the screens go on.
+The loopback follows the default output: every :data:`DEVICE_CHECK_S` the default
+speaker is looked at, and when it changed (headphones plugged in, a dock removed) the
+loopback is opened on the new one. A device that fails is tried again every
+:data:`RETRY_S`; meanwhile the track is padded with silence by the clock, the outage is
+kept in ``gaps`` (manifest ``computer_audio.gaps``) and :attr:`warning` says so.
+
+A failure of this track never stops the recording: it is logged, the microphone and the
+screens go on. Only a track that cannot be *written* any more ends (``error``).
 """
 
 from __future__ import annotations
@@ -39,10 +45,17 @@ log = logging.getLogger(__name__)
 DRIFT_TOLERANCE_S = 0.1  # the track may run this far ahead of or behind the clock
 OPEN_TIMEOUT_S = 5.0  # start() waits this long for the loopback stream to open
 BLOCK_FRAMES = 1024
+DEVICE_CHECK_S = 2.0  # how often the default output is compared with the one recorded
+RETRY_S = 2.0  # pause between two attempts to open an output that failed
+PAD_STEP_S = 0.25  # how often silence is added while no output can be recorded
 
 
 class ComputerAudioError(RuntimeError):
     """The sound of this computer cannot be recorded."""
+
+
+class _WriteError(RuntimeError):
+    """The track cannot be written any more (unlike a device that failed)."""
 
 
 @dataclass(frozen=True)
@@ -124,6 +137,9 @@ class ComputerAudioRecorder:
         self._paused_since: float | None = None
         self._paused_total = 0.0
         self.muted = False
+        # Outages of the output ({from_ms, to_ms, reason, device}) and what to tell the user.
+        self._gaps: list[dict[str, Any]] = []
+        self._warning: str | None = None
 
     @property
     def paused(self) -> bool:
@@ -144,6 +160,18 @@ class ComputerAudioRecorder:
     def error(self) -> str | None:
         """Why the track stopped being recorded (``None`` while everything is fine)."""
         return self._error
+
+    @property
+    def warning(self) -> str | None:
+        """What the user should know while the recording goes on: the sound of the
+        computer cannot be recorded right now (``None`` while it can)."""
+        return self._warning
+
+    @property
+    def gaps(self) -> list[dict[str, Any]]:
+        """Outages of the output so far (``to_ms`` null while one lasts)."""
+        with self._lock:
+            return [dict(gap) for gap in self._gaps]
 
     @property
     def frames_written(self) -> int:
@@ -178,6 +206,7 @@ class ComputerAudioRecorder:
             frames_written=self.frames_written,
             dropped_blocks=0,
             error=self._error,
+            gaps=self.gaps,
         )
         log.info("Computer audio recording stopped: %d ms", result.duration_ms)
         return result
@@ -187,10 +216,6 @@ class ComputerAudioRecorder:
     def _run(self) -> None:
         try:
             sc = _soundcard()
-            speaker = sc.default_speaker()
-            loopback = sc.get_microphone(id=str(speaker.name), include_loopback=True)
-            self.device = str(speaker.name)
-            channels = max(1, int(getattr(loopback, "channels", 2) or 2))
             wav = wave.open(str(self.path), "wb")
             wav.setnchannels(1)
             wav.setsampwidth(2)
@@ -200,38 +225,123 @@ class ComputerAudioRecorder:
             self._opened.set()
             return
         try:
-            with warnings.catch_warnings():
-                warnings.simplefilter("ignore")  # soundcard's "data discontinuity"
-                with loopback.recorder(
-                    samplerate=self.sample_rate, channels=channels, blocksize=BLOCK_FRAMES
-                ) as recorder:
-                    self._origin = time.monotonic()
-                    self._opened.set()
-                    while not self._stop.is_set():
-                        data = recorder.record(numframes=None)
-                        if len(data) == 0:
-                            time.sleep(0.01)  # never spin while the device has nothing
-                            continue
-                        if self.paused:
-                            continue  # drained, not written: the pause is cut out
-                        self._write(wav, data, time.monotonic())
-        except Exception as exc:  # noqa: BLE001 - device gone, driver error, disk full
-            if not self._opened.is_set():
-                self._open_error = f"cannot open the audio output: {exc}"
-                self._opened.set()
-            else:
-                log.exception("computer audio failed; the rest of the track is silence")
-                self._error = f"computer audio failed: {exc}"
+            while not self._stop.is_set():
+                try:
+                    self._record_default_output(sc, wav)
+                except _WriteError as exc:  # disk full, folder gone: the track ends here
+                    log.exception("computer audio cannot be written; the track ends")
+                    self._error = f"computer audio failed: {exc}"
+                    return
+                except Exception as exc:  # noqa: BLE001 - device gone, driver error
+                    if not self._opened.is_set():  # the very first open: start() reports it
+                        self._open_error = f"cannot open the audio output: {exc}"
+                        self._opened.set()
+                        return
+                    self._lose(str(exc) or type(exc).__name__)
+                    self._pad_while_waiting(wav, RETRY_S)
         finally:
             try:
                 if self._origin is not None and self._error is None:
                     self._pad_to(wav, time.monotonic())
             except Exception:  # noqa: BLE001 - best effort
                 log.debug("padding the computer audio failed", exc_info=True)
+            self._close_gap()
             try:
                 wav.close()
             except Exception as exc:  # noqa: BLE001
                 log.warning("computer audio file close failed: %s", exc)
+
+    def _record_default_output(self, sc: Any, wav: wave.Wave_write) -> None:
+        """Record the loopback of the default output until :meth:`stop` or until another
+        output became the default (returns; the caller opens that one). Raises when the
+        output cannot be opened or stops working."""
+        speaker = sc.default_speaker()
+        if speaker is None:
+            raise ComputerAudioError("no audio output device")
+        name, speaker_id = str(speaker.name), str(getattr(speaker, "id", speaker.name))
+        loopback = sc.get_microphone(id=name, include_loopback=True)
+        channels = max(1, int(getattr(loopback, "channels", 2) or 2))
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")  # soundcard's "data discontinuity"
+            with loopback.recorder(
+                samplerate=self.sample_rate, channels=channels, blocksize=BLOCK_FRAMES
+            ) as recorder:
+                if self._origin is None:
+                    self._origin = time.monotonic()
+                    self.device = name
+                self._opened.set()
+                self._restored(name)
+                next_check = time.monotonic() + DEVICE_CHECK_S
+                while not self._stop.is_set():
+                    data = recorder.record(numframes=None)
+                    now = time.monotonic()
+                    if len(data) == 0:
+                        time.sleep(0.01)  # never spin while the device has nothing
+                    elif not self.paused:  # drained, not written: the pause is cut out
+                        try:
+                            self._write(wav, data, now)
+                        except OSError as exc:
+                            raise _WriteError(str(exc)) from exc
+                    if now >= next_check:
+                        next_check = now + DEVICE_CHECK_S
+                        current = sc.default_speaker()
+                        current_id = str(getattr(current, "id", getattr(current, "name", "")))
+                        if current is not None and current_id != speaker_id:
+                            log.info(
+                                "the default audio output changed: %s -> %s", name, current.name
+                            )
+                            return
+
+    def _now_ms(self, now: float) -> int:
+        return self._expected_frames(now) * 1000 // self.sample_rate if self.sample_rate else 0
+
+    def _lose(self, reason: str) -> None:
+        if self._warning is not None:
+            return  # the outage is already open; this was another failed attempt
+        at_ms = self._now_ms(time.monotonic())
+        with self._lock:
+            self._gaps.append(
+                {"from_ms": at_ms, "to_ms": None, "reason": reason, "device": self.device}
+            )
+        self._warning = (
+            "The sound of the computer cannot be recorded - trying again. "
+            "The recording goes on without it."
+        )
+        log.warning("computer audio failed at %d ms (%s); trying again", at_ms, reason)
+
+    def _restored(self, name: str) -> None:
+        if self._warning is None:
+            return
+        self._warning = None
+        at_ms = self._now_ms(time.monotonic())
+        with self._lock:
+            for gap in self._gaps:
+                if gap["to_ms"] is None:
+                    gap["to_ms"] = at_ms
+                    gap["restored_device"] = name
+        log.info("computer audio is recorded again at %d ms: %s", at_ms, name)
+
+    def _close_gap(self) -> None:
+        """The recording ended during an outage: it lasted to the end."""
+        if self._origin is None:
+            return
+        at_ms = self._now_ms(time.monotonic())
+        with self._lock:
+            for gap in self._gaps:
+                if gap["to_ms"] is None:
+                    gap["to_ms"] = at_ms
+
+    def _pad_while_waiting(self, wav: wave.Wave_write, seconds: float) -> None:
+        """Wait before the next attempt; the track keeps following the clock, so the
+        file grows and whoever reads it while recording sees silence, not a dead track."""
+        deadline = time.monotonic() + seconds
+        while not self._stop.is_set() and time.monotonic() < deadline:
+            self._stop.wait(PAD_STEP_S)
+            if not self.paused:
+                try:
+                    self._pad_to(wav, time.monotonic())
+                except OSError:  # the next write of sound reports it
+                    return
 
     def _expected_frames(self, now: float) -> int:
         """Samples the track should hold at monotonic time ``now`` (paused time left out)."""

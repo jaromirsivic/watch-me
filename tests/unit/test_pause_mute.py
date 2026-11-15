@@ -4,7 +4,6 @@ text timeline."""
 from __future__ import annotations
 
 import json
-import queue
 import time
 from pathlib import Path
 
@@ -13,7 +12,6 @@ from test_recorder_sidecars import FakeGrabber, FakePlatform
 
 from watch_me.capture import computer_audio as ca
 from watch_me.capture import recorder as recorder_mod
-from watch_me.capture.audio_recorder import AudioRecorder
 from watch_me.capture.recorder import Recorder
 from watch_me.core.config import Config
 from watch_me.core.crop import Crop
@@ -62,30 +60,18 @@ def test_clock_stop_while_paused_ends_the_pause(monkeypatch):
     assert not clock.pause()  # a stopped clock cannot be paused
 
 
+def test_clock_has_no_time_for_stamps_after_stop(monkeypatch):
+    now = [0]
+    clock = _clock_at(monkeypatch, now)
+    now[0] += 2_000_000_000
+    assert clock.stop() == 2000
+    assert clock.ms_at(1_500_000_000) == 1500
+    assert clock.ms_at(2_000_000_000) == 2000  # the stop itself: the final duration
+    assert clock.ms_at(2_000_000_001) is None
+    assert clock.ms_at(9_000_000_000) is None
+
+
 # -- the audio tracks ------------------------------------------------------------------------
-
-
-def _bare_mic() -> AudioRecorder:
-    mic = AudioRecorder.__new__(AudioRecorder)
-    mic._queue = queue.Queue()
-    mic._dropped_blocks = 0
-    mic.paused = False
-    mic.muted = False
-    return mic
-
-
-def test_microphone_drops_paused_blocks_and_writes_silence_while_muted():
-    mic = _bare_mic()
-    block = np.full((4, 1), 1000, dtype=np.int16)
-    mic._callback(block, 4, None, None)
-    mic.paused = True
-    mic._callback(block, 4, None, None)  # cut out
-    mic.paused = False
-    mic.muted = True
-    mic._callback(block, 4, None, None)  # same length, silent
-    first, second = mic._queue.get_nowait(), mic._queue.get_nowait()
-    assert mic._queue.empty()
-    assert first.tolist() == block.tolist() and not second.any() and len(second) == 4
 
 
 class _FakeWav:
