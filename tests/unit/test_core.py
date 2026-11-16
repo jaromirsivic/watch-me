@@ -15,7 +15,6 @@ from watch_me.core.naming import (
     frame_filename,
     parse_frame_filename,
     screen_id,
-    sidecar_filename,
 )
 from watch_me.core.screens import RawScreen, assign_screen_ids
 from watch_me.core.session import (
@@ -182,14 +181,14 @@ def test_frame_names():
     assert frame_filename(0, "screen1", "png") == "0_000_screen1.png"
     assert frame_filename(250, "screen2", "png") == "0_250_screen2.png"
     assert frame_filename(61_005, "screen1", "jpeg") == "61_005_screen1.jpg"
-    assert sidecar_filename(250, "screen1") == "0_250_screen1.json"
 
 
 def test_parse_frame_filename():
     parsed = parse_frame_filename("61_005_screen2.jpg")
     assert parsed is not None
     assert (parsed.time_ms, parsed.screen_id, parsed.extension) == (61_005, "screen2", "jpg")
-    assert parse_frame_filename("0_250_screen1.json").is_sidecar
+    assert not parsed.without_image
+    assert parse_frame_filename("0_250_screen1.json") is None  # only images are frames
     assert parse_frame_filename("manifest.json") is None
     assert parse_frame_filename("1_25_screen1.png") is None  # millis must have 3 digits
 
@@ -270,7 +269,7 @@ def test_finalize_with_open_ui_log(tmp_path: Path):
     paths.audio_path(paths.work_dir).write_bytes(b"x")
     (paths.work_dir / "manifest.json").write_text("{}", encoding="utf-8")
     paths.frames_dir(paths.work_dir).joinpath("0_000_screen1.png").write_bytes(b"y")
-    paths.frames_info_dir(paths.work_dir).joinpath("0_000_screen1.json").write_bytes(b"{}")
+    paths.frames_info_dir(paths.work_dir).joinpath("index.jsonl").write_bytes(b"{}")
     paths.lock_path.write_text("1", encoding="utf-8")
     write_state(
         paths.state_path,
@@ -288,7 +287,7 @@ def test_finalize_with_open_ui_log(tmp_path: Path):
         "manifest.json",
     ]
     assert (final / "frames" / "0_000_screen1.png").read_bytes() == b"y"
-    assert (final / "frames_info" / "0_000_screen1.json").read_bytes() == b"{}"
+    assert (final / "frames_info" / "index.jsonl").read_bytes() == b"{}"
     assert (final / "audio" / "audio.wav").read_bytes() == b"x"
     assert list((final / "frames").glob("*.json")) == []
     assert sorted(p.name for p in paths.work_dir.iterdir()) == ["lock", "state.json", "ui.log"]

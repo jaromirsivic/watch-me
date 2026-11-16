@@ -1,7 +1,7 @@
 """Text timeline of a recording: speech and screen events in one compact list.
 
 Agents read this before any screenshot. It merges the transcript segments with what
-the frame sidecars say happened on screen - shapes drawn, removed and restored, shapes
+the tick index says happened on screen - shapes drawn, removed and restored, shapes
 started but never finished, the white sketch canvas switched on and off, Ctrl held to
 snap to the grid, text copied, the cursor moving to another
 screen, zoomed screens - the keypoints of the manifest
@@ -11,8 +11,9 @@ since the start). Every event
 names the frame times worth fetching (``frames --at <ms>``), so the agent opens only
 the few images the words and the geometry cannot answer.
 
-Drawings, background, cursor, zoom and clipboard are the same in every sidecar of a
-tick, so one sidecar per tick is read (the first screen that has a frame then).
+Drawings, background, cursor, zoom and clipboard of a tick are the same for every
+screen; the grid spacing is that of the first screen that was grabbed at the tick
+(:meth:`watch_me.core.tick_index.TickIndex.owner`).
 """
 
 from __future__ import annotations
@@ -24,7 +25,6 @@ from typing import Any
 
 from watch_me.core.crop import Crop, read_crop
 from watch_me.core.instructions import read_instructions
-from watch_me.core.naming import frame_base
 from watch_me.core.session import SessionPaths
 from watch_me.core.transcript import (
     LOWER_TRACK_MARK,
@@ -214,7 +214,7 @@ class _Event:
 
 @dataclass
 class _Ticks:
-    """Sidecars of the ticks around a range, read once (one screen per tick)."""
+    """The state of the ticks around a range (as seen from one screen per tick)."""
 
     all_times: list[int]
     times: list[int] = field(default_factory=list)
@@ -248,26 +248,21 @@ class _Ticks:
 
 def _load_ticks(index: FrameIndex, start_ms: int, end_ms: int) -> _Ticks:
     if not index.screens:
-        raise SessionError("NO_FRAMES", f"no frames in {index.info_dir}")
-    owner: dict[int, str] = {}
-    for screen_id in reversed(index.screens):  # the first screen wins
-        for name in index.by_screen[screen_id]:
-            owner[name.time_ms] = screen_id
-    all_times = sorted(owner)
+        raise SessionError("NO_FRAMES", f"no frames in {index.frames_dir}")
+    stored = index.require_ticks()
+    all_times = stored.times
     ticks = _Ticks(all_times=all_times)
+    if not all_times:
+        return ticks
     # From the last tick at or before the start (the state the range opens with) to
     # the first tick after the end (where a shape released just before the end shows).
     first = max(bisect.bisect_right(all_times, start_ms) - 1, 0)
     last = min(bisect.bisect_right(all_times, end_ms), len(all_times) - 1)
-    for time_ms in all_times[first : last + 1]:
-        sidecar = index.info_dir / f"{frame_base(time_ms, owner[time_ms])}.json"
-        try:
-            data = json.loads(sidecar.read_text(encoding="utf-8"))
-        except (OSError, ValueError):
-            continue
-        if isinstance(data, dict):
-            ticks.times.append(time_ms)
-            ticks.data.append(data)
+    for state in stored.states[first : last + 1]:
+        owner = stored.owner(state)
+        if owner is not None:
+            ticks.times.append(state.time_ms)
+            ticks.data.append(state.for_screen(owner))
     return ticks
 
 
@@ -297,7 +292,7 @@ def _geometry(shape: dict[str, Any]) -> str:
             return "empty path"
         return (
             f"bbox {min(xs)},{min(ys)} {max(xs) - min(xs)}x{max(ys) - min(ys)} "
-            f"({len(xs)} points, path in the sidecar)"
+            f"({len(xs)} points, path in frames)"
         )
     if tool == "arrow":
         heads = shape.get("heads")

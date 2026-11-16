@@ -28,7 +28,7 @@ only the user changes them (Pause, Resume and Stop > Continue Recording leave th
 they are). Mute PC starts pressed when computer audio is switched off in Settings, and
 is grayed out when the computer's sound cannot be recorded. The text clipboard is
 tracked (:mod:`watch_me.ui.clipboard`): every new text copied during the recording
-(not while paused) lands in the frame sidecars of the next tick.
+(not while paused) lands in the next tick of the index.
 
 Keyboard shortcuts while recording (each button's tooltip starts with its shortcut in
 brackets; system-wide on Windows, see :mod:`watch_me.ui.hotkeys`): Ctrl+Alt+S Stop,
@@ -287,6 +287,9 @@ class ControlWindow(QWidget):
 
         self._timer = QTimer(self)
         self._timer.setInterval(UI_TICK_MS)
+        # What the status line showed last while recording (see _tick).
+        self._status_key: tuple[object, ...] | None = None
+        self._status_text = ""
         self._timer.timeout.connect(self._tick)
 
         # Active only while recording (registered on Record, released when it ends).
@@ -1038,7 +1041,7 @@ class ControlWindow(QWidget):
             set_grid_size(self.controller.config.drawing_grid_px)
 
     def _connect_overlay_to_recorder(self) -> None:
-        """Let the recorder store the drawings in every frame sidecar."""
+        """Let the recorder store the drawings in the tick index."""
         recorder = self.controller.recorder
         if recorder is None or self._overlay is None:
             return
@@ -1151,6 +1154,14 @@ class ControlWindow(QWidget):
         paused = self.paused
         if not paused:
             self._clipboard.poll()
+        keypoints = len(getattr(recorder, "keypoints", None) or ())
+        warning = self._note_audio_warning(getattr(recorder, "audio_warning", None))
+        # The text changes once a second (and at once with the state, a keypoint or a
+        # warning), not at every tick of this timer: the frame counter and the
+        # transcription lag would otherwise repaint the window five times a second.
+        key = (paused, recorder.elapsed_ms // 1000, keypoints, warning)
+        if key == self._status_key and self.status_label.text() == self._status_text:
+            return
         elapsed = format_timestamp(recorder.elapsed_ms)
         remaining = max(0, self.controller.config.auto_stop_ms - recorder.elapsed_ms)
         state = "Paused" if paused else "Recording"
@@ -1163,14 +1174,14 @@ class ControlWindow(QWidget):
             first += f"  |  text −{format_timestamp(lag)[3:-4]}"
         # Second line: screens, frames and keypoints.
         second = f"{len(recorder.screens)} screen(s), {recorder.frame_count} frames"
-        keypoints = len(getattr(recorder, "keypoints", None) or ())
         if keypoints:
             second += f"  |  {keypoints} keypoint{'s' if keypoints != 1 else ''}"
-        warning = self._note_audio_warning(getattr(recorder, "audio_warning", None))
         if warning:
             # The part before " - trying ..." fits the line; the tooltip has all of it.
             second = AUDIO_WARNING_MARK + warning.partition(" - trying")[0]
-        self.status_label.setText(f"{first}\n{second}")
+        self._status_key = key
+        self._status_text = f"{first}\n{second}"
+        self.status_label.setText(self._status_text)
 
     def _note_audio_warning(self, warning: str | None) -> str | None:
         """Show that a sound device went silent (or is back). The recording goes on: the

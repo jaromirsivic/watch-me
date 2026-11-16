@@ -225,7 +225,7 @@ def _write_still(index: FrameIndex, screen_id: str, duration_ms: int, target: Pa
     """
     from PIL import Image
 
-    names = [n for n in index.by_screen.get(screen_id, []) if not n.is_sidecar]
+    names = [n for n in index.by_screen.get(screen_id, []) if not n.without_image]
     if not names:
         raise ArchiveError("NO_FRAMES", f"no frames of {screen_id} left for the still image")
     times = [n.time_ms for n in names]
@@ -251,7 +251,7 @@ def _write_still(index: FrameIndex, screen_id: str, duration_ms: int, target: Pa
 def _delete_screen_frames(index: FrameIndex, screen_id: str) -> list[str]:
     left: list[str] = []
     for name in index.by_screen.get(screen_id, []):
-        if name.is_sidecar:
+        if name.without_image:
             continue
         path = index.frames_dir / name.filename
         if not _remove(path):
@@ -458,7 +458,7 @@ def archive_recording(
         if cancel is not None and cancel():
             raise ArchiveError("CANCELLED", "archiving was stopped")
         mp4, jpg, srt = screen_outputs(paths, screen_id)
-        has_images = any(not n.is_sidecar for n in index.by_screen.get(screen_id, []))
+        has_images = any(not n.without_image for n in index.by_screen.get(screen_id, []))
         if has_images:
             free = _free_bytes(paths)
             if free is not None and free < MIN_FREE_BYTES:

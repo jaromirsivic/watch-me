@@ -6,7 +6,6 @@ import os
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-import json  # noqa: E402
 import re  # noqa: E402
 import threading  # noqa: E402
 import time  # noqa: E402
@@ -19,10 +18,11 @@ from PIL import Image  # noqa: E402
 from PySide6.QtCore import QEvent, QPoint, QPointF, QRunnable, Qt  # noqa: E402
 from PySide6.QtGui import QFocusEvent, QImage, QMouseEvent  # noqa: E402
 from PySide6.QtWidgets import QApplication  # noqa: E402
+from tick_fixtures import IndexBuilder  # noqa: E402
 
 from watch_me.core.config import Config  # noqa: E402
 from watch_me.core.manifest import AudioInfo, Manifest, write_manifest  # noqa: E402
-from watch_me.core.naming import frame_filename, sidecar_filename  # noqa: E402
+from watch_me.core.naming import frame_filename  # noqa: E402
 from watch_me.core.screens import RawScreen, assign_screen_ids  # noqa: E402
 from watch_me.core.session import SessionPaths  # noqa: E402
 from watch_me.core.transcript import Segment, Transcript, write_transcript  # noqa: E402
@@ -64,11 +64,12 @@ def make_recording(
     duration_ms: int = DURATION_MS,
     audio_ms: int | None = None,
     segments: list[Segment] | None = None,
+    clipboard: dict[int, str] | None = None,
 ) -> SessionPaths:
     """A processed recording: two screens, five tiny PNG frames each, WAV, transcript.
 
     ``audio_ms`` makes the WAV shorter than the recording; ``segments`` replaces the
-    default transcript.
+    default transcript; ``clipboard`` maps a tick to the text copied at it.
     """
     paths = SessionPaths(root, session_id)
     final = paths.final_dir
@@ -79,6 +80,7 @@ def make_recording(
     screens = assign_screen_ids(
         [RawScreen(0, 0, 320, 200, primary=True), RawScreen(320, 0, 160, 100)]
     )
+    index = IndexBuilder(info)
     for t in FRAME_TIMES:
         cursor = {"screen": "screen1" if t < 1000 else "screen2", "x": 10 + t // 100, "y": 5}
         for sid, size, colour in (
@@ -86,9 +88,9 @@ def make_recording(
             ("screen2", (160, 100), (40, 80, t // 10 % 255)),
         ):
             Image.new("RGB", size, colour).save(frames / frame_filename(t, sid, "png"))
-            (info / sidecar_filename(t, sid)).write_text(
-                json.dumps({"time_ms": t, "screen": sid, "cursor": cursor}), encoding="utf-8"
-            )
+            copied = (clipboard or {}).get(t)
+            index.add(t, sid, {"time_ms": t, "screen": sid, "cursor": cursor, "clipboard": copied})
+    index.write()
     n = SAMPLE_RATE * (DURATION_MS if audio_ms is None else audio_ms) // 1000
     tt = np.arange(n) / SAMPLE_RATE
     samples = (np.sin(2 * np.pi * 440 * tt) * 12000).astype("<i2")

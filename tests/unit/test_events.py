@@ -1,4 +1,4 @@
-"""Tests for the text timeline (host.events): speech and screen events from sidecars."""
+"""Tests for the text timeline (host.events): speech and screen events from the tick index."""
 
 from __future__ import annotations
 
@@ -7,13 +7,15 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from tick_fixtures import IndexBuilder
 
 from watch_me.core.crop import Crop, write_crop
 from watch_me.core.instructions import write_instructions
 from watch_me.core.manifest import Manifest, write_manifest
-from watch_me.core.naming import frame_filename, sidecar_filename
+from watch_me.core.naming import frame_filename
 from watch_me.core.screens import RawScreen, assign_screen_ids
 from watch_me.core.session import SessionPaths
+from watch_me.core.tick_index import index_path
 from watch_me.core.transcript import Segment, Transcript, write_transcript
 from watch_me.host.events import CLIPBOARD_EXCERPT_CHARS, build_timeline
 from watch_me.host.runner import SessionError, frames_at
@@ -48,6 +50,7 @@ def make_recording(
     frames = paths.frames_dir(paths.work_dir)
     info = paths.frames_info_dir(paths.work_dir)
     cursor = {"screen": "screen1", "x": 1, "y": 2}
+    index = IndexBuilder(info, interval_ms=INTERVAL)
     for t in range(0, duration_ms + 1, INTERVAL):
         extra = ticks.get(t, {})
         cursor = extra.get("cursor", cursor)
@@ -65,7 +68,8 @@ def make_recording(
                 "clipboard": extra.get("clipboard"),
             }
             (frames / frame_filename(t, sid, "png")).write_bytes(b"\x89PNG")
-            (info / sidecar_filename(t, sid)).write_text(json.dumps(sidecar), encoding="utf-8")
+            index.add(t, sid, sidecar)
+    index.write()
     write_manifest(
         paths.manifest_path(paths.work_dir),
         Manifest(
@@ -168,6 +172,14 @@ def test_timeline_follows_the_crop_and_explicit_ranges(tmp_path: Path):
         build_timeline(paths, 3000, 1000)
 
 
+def test_timeline_needs_the_tick_index(tmp_path: Path):
+    paths = make_recording(tmp_path, {})
+    index_path(paths.frames_info_dir(paths.current_dir)).unlink()
+    with pytest.raises(SessionError) as raised:
+        build_timeline(paths)
+    assert raised.value.code == "NO_INDEX"
+
+
 def test_old_recordings_merge_a_shape_growing_while_dragged(tmp_path: Path):
     # Before shapes had ids, a rectangle was stored at every tick while dragged.
     ticks = {
@@ -207,7 +219,7 @@ def test_brush_zoom_and_long_clipboard(tmp_path: Path):
     text = build_timeline(make_recording(tmp_path, ticks))["timeline"]
     assert "500 ZOOM screen2 2.0x region 10,10 20x20" in text
     assert (
-        "900 DRAW #1 brush #00FF00 screen2 bbox 5,4 20x26 (3 points, path in the sidecar) "
+        "900 DRAW #1 brush #00FF00 screen2 bbox 5,4 20x26 (3 points, path in frames) "
         "(zoomed view) (pressed 600, released 900; frames before 500, after 1000)"
     ) in text
     assert "1500 ZOOM END screen2 (zoomed since 500;" in text
@@ -280,7 +292,7 @@ def test_shift_shapes_connected_lines_and_split_arrows(tmp_path: Path):
     text = build_timeline(make_recording(tmp_path, ticks))["timeline"]
     assert "DRAW #1 rectangle #000000 screen1 corners 10,20 70,80 (square, Shift) (pressed" in text
     assert "DRAW #2 ellipse #000000 screen1 corners 10,20 70,80 (circle, Shift) (pressed" in text
-    assert "path in the sidecar) (closed shape, Shift) (pressed" in text
+    assert "path in frames) (closed shape, Shift) (pressed" in text
     assert (
         "DRAW #4 line #000000 screen1 from 10,20 to 70,80 (connected lines group 1, segment 1)"
         in text

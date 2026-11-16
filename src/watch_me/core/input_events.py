@@ -8,7 +8,7 @@ the rules can change without touching old recordings.
 
 One JSON object per line, UTF-8, ``seq`` ascending, ``t`` in milliseconds of the
 recording timeline. Coordinates: ``screen``/``x``/``y`` are pixels of that screen's
-image (the same as the cursor in the frame sidecars), ``gx``/``gy`` physical pixels of
+image (the same as the cursor in the tick index), ``gx``/``gy`` physical pixels of
 the virtual desktop (distances are measured there, also across screens).
 
 Nothing here depends on the operating system or Qt: every platform fills the same

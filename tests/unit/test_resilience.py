@@ -8,7 +8,6 @@ import os
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-import json  # noqa: E402
 import queue  # noqa: E402
 import threading  # noqa: E402
 import time  # noqa: E402
@@ -39,6 +38,7 @@ from watch_me.core.session import (  # noqa: E402
     read_state,
     write_state,
 )
+from watch_me.core.tick_index import TickIndex, index_path  # noqa: E402
 from watch_me.core.transcript import Segment, Transcript, write_transcript  # noqa: E402
 from watch_me.editor.window import EditorWindow  # noqa: E402
 from watch_me.host import editor_session as es  # noqa: E402
@@ -129,6 +129,10 @@ def test_a_screen_that_cannot_be_grabbed_does_not_end_the_recording(recorder: Re
     _wait(lambda: _frames(recorder, "screen2") > before + 2)  # capture resumes by itself
     summary = recorder.stop()
     assert summary.failed_grabs >= 5 and summary.stop_reason is None and summary.error is None
+    # The ticks stored while only screen2 failed say so; screen1 is never listed.
+    ticks = TickIndex.load(recorder.paths.frames_info_dir(recorder.paths.work_dir))
+    assert ("screen2",) in {state.failed for state in ticks.states}
+    assert not any("screen1" in state.failed for state in ticks.states)
     manifest = summary.to_manifest(recorder.config, "fake")
     assert manifest.frames.failed_grabs == summary.failed_grabs
     assert manifest.to_dict()["frames"]["failed_grabs"] == summary.failed_grabs
@@ -146,12 +150,10 @@ def test_copied_text_waits_for_a_tick_that_is_stored(recorder: Recorder):
     _wait(lambda: not texts)
     _wait(lambda: recorder.frame_count >= 2)
     recorder.stop()
-    frames_dir = recorder.paths.frames_dir(recorder.paths.work_dir)
-    stored = [
-        json.loads(p.read_text(encoding="utf-8"))["clipboard"]
-        for p in frames_dir.parent.joinpath("frames_info").glob("*.json")
-    ]
-    assert "copied while the screen was locked" in stored
+    info = recorder.paths.frames_info_dir(recorder.paths.work_dir)
+    assert [p.name for p in info.iterdir()] == ["index.jsonl"]
+    stored = [text for _, text in TickIndex.load(info).clipboard_changes()]
+    assert stored == ["copied while the screen was locked"]
 
 
 # Disk space --------------------------------------------------------------------
@@ -273,9 +275,9 @@ def _left_behind(
     last = sorted(frames_dir.glob("*_screen1.png"))[-1]
     for extra in ("1_500_screen1", "1_500_screen2"):  # make it longer than a second
         (frames_dir / f"{extra}.png").write_bytes(last.read_bytes())
-        (paths.frames_info_dir(paths.work_dir) / f"{extra}.json").write_text(
-            '{"time_ms": 1500}', encoding="utf-8"
-        )
+    # The tick of those frames, as the capture thread would have appended it.
+    with index_path(paths.frames_info_dir(paths.work_dir)).open("ab") as index:
+        index.write(b'{"t":1500}\n')
     with wave.open(str(paths.audio_path(paths.work_dir)), "wb") as wf:
         wf.setnchannels(1)
         wf.setsampwidth(2)
@@ -339,9 +341,12 @@ def test_recovery_leaves_a_running_window_and_foreign_folders_alone(tmp_path: Pa
 def test_recovery_ignores_leftovers_shorter_than_a_second(tmp_path: Path):
     paths = _left_behind(tmp_path)
     paths.audio_path(paths.work_dir).unlink()
-    for folder in (paths.frames_dir(paths.work_dir), paths.frames_info_dir(paths.work_dir)):
-        for path in folder.glob("1_500_*"):
-            path.unlink()
+    for path in paths.frames_dir(paths.work_dir).glob("1_500_*"):
+        path.unlink()
+    index = index_path(paths.frames_info_dir(paths.work_dir))
+    lines = index.read_bytes().splitlines(keepends=True)
+    assert lines[-1] == b'{"t":1500}\n'
+    index.write_bytes(b"".join(lines[:-1]))  # and the tick at 1500 ms
     assert recovery.recover_orphaned_recordings(tmp_path) == []
     assert not paths.final_dir.exists()
 

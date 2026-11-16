@@ -1,10 +1,9 @@
-"""Text clipboard tracking while recording (stored once per change in a frame sidecar).
+"""Text clipboard tracking while recording (stored once per change in the tick index).
 
 Whenever the clipboard changes during the recording to a *text* that differs from the
 last known text (Ctrl+C, a paste from elsewhere, ...), that text is written into the
-``clipboard`` field of the next frame sidecar(s) the recorder writes - the sidecars of
-that one tick, which share the time stamp - and nowhere else: the sidecars of later
-ticks carry ``clipboard: null`` until the clipboard changes again. What was already in
+``clipboard`` field of the next tick the recorder writes to its index and nowhere else:
+later ticks carry no ``clipboard`` until the clipboard changes again. What was already in
 the clipboard when Record was pressed counts as the last known text, so it is never
 stored. A text longer than :data:`MAX_CLIPBOARD_CHARS` characters is cut there and ends
 with ``...``.
@@ -42,7 +41,7 @@ class ClipboardTracker(QObject):
         self._clipboard = clipboard
         self._lock = threading.Lock()
         self._last: str | None = None  # last known text (what the user already had)
-        self._pending: str | None = None  # a new text not stored in a sidecar yet
+        self._pending: str | None = None  # a new text not stored in a tick yet
         self._changes = 0
         self._active = False
 
@@ -103,7 +102,7 @@ class ClipboardTracker(QObject):
 
     def poll(self) -> None:
         """Re-read the clipboard (``dataChanged`` slot and the control window's tick):
-        a text different from the last known one becomes pending for the next sidecar."""
+        a text different from the last known one becomes pending for the next tick."""
         if not self._active:
             return
         text = self._read_text()
@@ -116,7 +115,7 @@ class ClipboardTracker(QObject):
             self._pending = truncate_clipboard(text)
 
     def take(self) -> str | None:
-        """The pending text for the sidecars of the tick being written, then ``None``
+        """The pending text for the tick being written, then ``None``
         until the clipboard changes again (thread-safe; the recorder's provider)."""
         with self._lock:
             pending, self._pending = self._pending, None

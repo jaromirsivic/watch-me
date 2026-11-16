@@ -307,18 +307,35 @@ def cmd_describe(args: argparse.Namespace) -> dict[str, Any]:
 
 
 def cmd_frames(args: argparse.Namespace) -> dict[str, Any]:
+    """The frames of a moment. A result that had to be shortened to fit the host's
+    output limit is also written whole to ``frames_file`` (``agent/frames.json``)."""
+    from watch_me.core.fileio import atomic_write_text
+    from watch_me.host.agent_output import FRAMES_FILE_NAME
     from watch_me.host.runner import SessionError, frames_at
 
     cfg = _load(args)
     paths = _session_paths(args, cfg)
+    options = {
+        "screen": args.screen,
+        "window_ms": args.window,
+        "include_drawings": not args.no_drawings,
+    }
     try:
-        return frames_at(
-            paths,
-            args.at,
-            screen=args.screen,
-            window_ms=args.window,
-            include_drawings=not args.no_drawings,
-        )
+        result = frames_at(paths, args.at, **options)
+        if result.get("truncated"):
+            whole = frames_at(paths, args.at, shrink=False, **options)
+            whole["truncated"] = False
+            whole.pop("truncated_note", None)
+            target = paths.agent_dir() / FRAMES_FILE_NAME
+            try:
+                text = json.dumps(whole, ensure_ascii=False, default=str)
+                atomic_write_text(target, text + "\n", newline="\n")
+            except OSError as exc:
+                log.warning("cannot write %s: %s", target, exc)
+            else:
+                result["frames_file"] = str(target)
+                result["truncated_note"] += " The whole result is in frames_file (JSON)."
+        return result
     except SessionError as exc:
         raise CliError(exc.code, str(exc)) from exc
 

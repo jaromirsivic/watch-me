@@ -222,7 +222,7 @@ def test_snap_to_grid_is_released_at_every_drawing_start(overlay):
     assert not overlay.grid_locked
 
 
-def test_grid_source_for_the_sidecars(overlay, keyboard):
+def test_grid_source_for_the_tick_index(overlay, keyboard):
     overlay.set_screens(_screens())
     screen_id = _screens()[0].id
     assert overlay.grid() is None and overlay.grid_source() is None

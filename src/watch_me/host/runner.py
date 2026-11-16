@@ -21,7 +21,7 @@ from watch_me.core.crop import read_crop
 from watch_me.core.cursor import cursor_from_json
 from watch_me.core.instructions import read_instructions
 from watch_me.core.manifest import Manifest, read_manifest
-from watch_me.core.naming import FrameName, parse_frame_filename
+from watch_me.core.naming import NO_IMAGE_EXTENSION, FrameName, parse_frame_filename
 from watch_me.core.session import (
     FRAMES_INFO_DIR_NAME,
     UI_LOG_FILE_NAME,
@@ -35,6 +35,7 @@ from watch_me.core.session import (
     read_state,
     write_state,
 )
+from watch_me.core.tick_index import NO_INDEX, NoIndexError, TickIndex, index_path
 from watch_me.core.transcript import (
     format_segment_line,
     ordered_segments,
@@ -356,8 +357,8 @@ ARCHIVED_NOTE = (
     "in archive/ (<screenId>.mp4 with subtitles <screenId>.srt and a still <screenId>.jpg "
     "from the middle). The MP4 holds only the audio tracks that were switched on in the "
     "editor; `audio` lists every track on its own (AAC), `tracks_file` says which were on "
-    "(missing: all). The transcript and the frame sidecars (frames_info/) are still "
-    "there, so the timeline works; frame images are gone (image null)."
+    "(missing: all). The transcript and the tick index (frames_info/index.jsonl) are "
+    "still there, so the timeline works; frame images are gone (image null)."
 )
 
 
@@ -416,12 +417,35 @@ def archive_info(paths: SessionPaths, base: Path) -> dict[str, Any] | None:
 # Frames -----------------------------------------------------------------------
 
 
+# What a frame entry takes from the state of its tick.
+FRAME_STATE_KEYS = (
+    "cursor",
+    "drawings",
+    "drawing_now",
+    "zoom",
+    "background",
+    "grid",
+    "grid_source",
+    "clipboard",
+)
+
+
+def load_ticks(paths: SessionPaths, base: Path | None = None) -> TickIndex:
+    """The tick index of a recording (``NO_INDEX`` when it has none)."""
+    try:
+        return TickIndex.load(paths.frames_info_dir(base))
+    except NoIndexError as exc:
+        raise SessionError(NO_INDEX, str(exc)) from exc
+
+
 @dataclass
 class FrameRef:
     screen_id: str
     time_ms: int
     image: Path | None  # None: the image is gone (an archived recording)
-    sidecar: Path
+    # What the tick of this frame showed, as seen from this screen
+    # (:meth:`watch_me.core.tick_index.TickState.for_screen`); None: not in the index.
+    state: dict[str, Any] | None = None
 
     def to_dict(self, include_drawings: bool = True) -> dict[str, Any]:
         cursor = None
@@ -432,8 +456,8 @@ class FrameRef:
         grid: int | None = None  # grid spacing (image pixels) while snapping, else None
         grid_source: str | None = None  # "ctrl" or "toggle" (Snap to grid) while snapping
         clipboard: str | None = None  # text copied during the recording (see ui.clipboard)
+        data = self.state or {}
         try:
-            data = json.loads(self.sidecar.read_text(encoding="utf-8"))
             position = cursor_from_json(data.get("cursor"))
             cursor = position.to_json() if position else None
             raw_drawings = data.get("drawings")
@@ -456,13 +480,12 @@ class FrameRef:
             raw_clipboard = data.get("clipboard")
             if isinstance(raw_clipboard, str):
                 clipboard = raw_clipboard
-        except (OSError, ValueError, KeyError, AttributeError):
+        except (ValueError, KeyError, AttributeError, TypeError):
             pass
         result: dict[str, Any] = {
             "screen": self.screen_id,
             "time_ms": self.time_ms,
             "image": str(self.image) if self.image is not None else None,
-            "sidecar": str(self.sidecar),
             "cursor": cursor,
             "drawings": drawings,
             "drawing_now": drawing_now,
@@ -481,27 +504,54 @@ class FrameRef:
 class FrameIndex:
     """Index of all frames of a recording, grouped by screen and sorted by time.
 
-    Images live in ``frames/``, their sidecars in ``frames_info/`` (next to it unless
-    ``info_dir`` says otherwise). A frame whose image is gone (archiving deletes
-    ``frames/`` screen by screen) is still indexed from its sidecar, with no image.
+    The images live in ``frames/``; what every tick showed is in the tick index
+    ``frames_info/index.jsonl`` (:mod:`watch_me.core.tick_index`; ``frames_info/`` lies
+    next to ``frames/`` unless ``info_dir`` says otherwise). A frame whose image is gone
+    (archiving deletes ``frames/`` screen by screen) is still listed, from the index,
+    with no image (:attr:`FrameName.without_image`).
+
+    A recording without an index still lists its images; whoever needs the state of a
+    tick asks :meth:`require_ticks`.
     """
 
-    def __init__(self, frames_dir: Path, info_dir: Path | None = None) -> None:
+    def __init__(
+        self, frames_dir: Path, info_dir: Path | None = None, with_ticks: bool = True
+    ) -> None:
+        """``with_ticks`` False: only the images are listed, the index is not read (the
+        list of recordings needs a thumbnail, not the state of every tick)."""
         self.frames_dir = frames_dir
         if info_dir is None:
             info_dir = frames_dir.parent / FRAMES_INFO_DIR_NAME
         self.info_dir = info_dir
         found: dict[tuple[str, int], FrameName] = {}
-        for directory, sidecars in ((self.frames_dir, False), (self.info_dir, True)):
-            try:
-                entries = list(os.scandir(directory))
-            except FileNotFoundError:
-                continue
-            for entry in entries:
-                parsed = parse_frame_filename(entry.name)
-                if parsed is None or parsed.is_sidecar != sidecars:
-                    continue
-                found.setdefault((parsed.screen_id, parsed.time_ms), parsed)
+        try:
+            entries = list(os.scandir(self.frames_dir))
+        except FileNotFoundError:
+            entries = []
+        for entry in entries:
+            parsed = parse_frame_filename(entry.name)
+            if parsed is not None:
+                found[(parsed.screen_id, parsed.time_ms)] = parsed
+        self.ticks: TickIndex | None = None
+        self._no_index: NoIndexError | None = None
+        try:
+            if with_ticks:
+                self.ticks = TickIndex.load(self.info_dir)
+        except NoIndexError as exc:
+            self._no_index = exc
+        except OSError as exc:
+            log.warning("cannot read the tick index in %s: %s", self.info_dir, exc)
+            self._no_index = NoIndexError(index_path(self.info_dir))
+        if self.ticks is not None:
+            # Frames known from the index only: their images were deleted (archived).
+            screens = self.ticks.screens
+            for state in self.ticks.states:
+                for screen_id in screens:
+                    if screen_id not in state.failed:
+                        found.setdefault(
+                            (screen_id, state.time_ms),
+                            FrameName(state.time_ms, screen_id, NO_IMAGE_EXTENSION),
+                        )
         self.by_screen: dict[str, list[FrameName]] = {}
         for name in found.values():
             self.by_screen.setdefault(name.screen_id, []).append(name)
@@ -509,24 +559,45 @@ class FrameIndex:
             names.sort()
 
     @classmethod
-    def of(cls, paths: SessionPaths, base: Path | None = None) -> FrameIndex:
+    def of(
+        cls, paths: SessionPaths, base: Path | None = None, with_ticks: bool = True
+    ) -> FrameIndex:
         """The frames of a recording directory (``paths.current_dir`` by default)."""
-        return cls(paths.frames_dir(base), paths.frames_info_dir(base))
+        return cls(paths.frames_dir(base), paths.frames_info_dir(base), with_ticks)
+
+    def require_ticks(self) -> TickIndex:
+        """The tick index (``NO_INDEX`` when the recording has none)."""
+        if self.ticks is None:
+            error = self._no_index or NoIndexError(index_path(self.info_dir))
+            raise SessionError(NO_INDEX, str(error))
+        return self.ticks
 
     def image_of(self, name: FrameName) -> Path | None:
-        return None if name.is_sidecar else self.frames_dir / name.filename
+        return None if name.without_image else self.frames_dir / name.filename
 
     @property
     def screens(self) -> list[str]:
         return sorted(self.by_screen, key=lambda s: int(s.removeprefix("screen")))
+
+    def state_of(self, screen_id: str, time_ms: int) -> dict[str, Any] | None:
+        """What the tick at ``time_ms`` showed, as seen from ``screen_id`` (the latest
+        tick before it when that very tick is not in the index)."""
+        if self.ticks is None:
+            return None
+        state = self.ticks.exact(time_ms) or self.ticks.at(time_ms)
+        return state.for_screen(screen_id) if state is not None else None
 
     def _ref(self, name: FrameName) -> FrameRef:
         return FrameRef(
             screen_id=name.screen_id,
             time_ms=name.time_ms,
             image=self.image_of(name),
-            sidecar=self.info_dir / f"{name.base}.json",
+            state=self.state_of(name.screen_id, name.time_ms),
         )
+
+    def ref(self, name: FrameName) -> FrameRef:
+        """The frame ``name`` with its image path and the state of its tick."""
+        return self._ref(name)
 
     def at(self, screen_id: str, time_ms: int) -> FrameRef | None:
         """Latest frame at or before ``time_ms``; the first frame when none precede it."""
@@ -552,18 +623,22 @@ def frames_at(
     screen: str = "cursor",
     window_ms: int = 0,
     include_drawings: bool = True,
+    shrink: bool = True,
 ) -> dict[str, Any]:
     """Frames matching a moment of the timeline.
 
     ``screen``: ``cursor`` (the screen the cursor was on at that moment), ``all``
     (every screen) or a screen id. ``window_ms`` > 0 also returns every frame within
     ``at_ms`` +/- ``window_ms``. ``include_drawings`` False replaces the (repeated)
-    drawings list of every frame by ``drawing_ids``.
+    drawings list of every frame by ``drawing_ids``. ``shrink`` False returns
+    everything whatever its size (the ``frames`` command writes that to a file when
+    the result it prints had to be shortened).
     """
     base = paths.current_dir
     index = FrameIndex.of(paths, base)
     if not index.screens:
         raise SessionError("NO_FRAMES", f"no frames in {base}")
+    index.require_ticks()
     manifest: Manifest | None = None
     manifest_path = paths.manifest_path(base)
     if manifest_path.exists():
@@ -624,7 +699,8 @@ def frames_at(
     archive = archive_info(paths, base)
     if archive is not None:
         result["archive"] = archive
-    notes += _shrink_frames(result)
+    if shrink:
+        notes += _shrink_frames(result)
     result["truncated"] = bool(notes)
     if notes:
         result["truncated_note"] = "; ".join(notes) + "."
@@ -659,19 +735,18 @@ def _shrink_frames(result: dict[str, Any]) -> list[str]:
         (
             window,
             _slim_window_entry,
-            "window frames carry only time, image, sidecar and cursor",
+            "window frames carry only time, image and cursor",
         ),
         (
             result["frames"],
             _without_drawings,
-            "frames list drawing_ids instead of the shapes (the timeline describes them, "
-            "the sidecar has their geometry)",
+            "frames list drawing_ids instead of the shapes (the timeline describes them)",
         ),
         (
             result["frames"],
             _cut_clipboard,
             f"clipboard is cut at {FRAMES_CLIPBOARD_CHARS} characters (clipboard_chars is "
-            "its length, the sidecar has all of it)",
+            "its length)",
         ),
     )
     for entries, change, note in steps:
@@ -683,7 +758,7 @@ def _shrink_frames(result: dict[str, Any]) -> list[str]:
 
 
 def _slim_window_entry(entry: dict[str, Any]) -> bool:
-    kept = {k: entry[k] for k in ("screen", "time_ms", "image", "sidecar", "cursor")}
+    kept = {k: entry[k] for k in ("screen", "time_ms", "image", "cursor")}
     if len(kept) == len(entry):
         return False
     entry.clear()

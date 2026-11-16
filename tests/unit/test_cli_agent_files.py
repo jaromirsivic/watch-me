@@ -317,3 +317,33 @@ def test_finalize_drops_agent_files_of_the_work_directory(tmp_path: Path):
     final = paths.finalize()
     assert (final / "manifest.json").is_file()
     assert not (final / "agent").exists() and not agent.exists()
+
+
+# frames -------------------------------------------------------------------------
+
+
+def test_a_shortened_frames_result_is_whole_in_a_file(root: Path, run):
+    """What `frames` had to leave out to fit the host's output limit (shapes, a long
+    copied text) is not lost: the whole result is written to ``agent/frames.json``."""
+    shapes = [
+        {"id": i, "tool": "line", "color": "#FF0000", "screen": "screen1", "path": [[i, i]] * 20}
+        for i in range(1, 301)
+    ]
+    ticks = {t: {"drawings": shapes} for t in range(0, 6001, 500)}
+    ticks[3000]["clipboard"] = "c" * 60_000
+    paths = make_recording(root, ticks)
+
+    small = run("frames", "--session", paths.session_id, "--at", "1000", "--no-drawings")
+    assert small["truncated"] is False and "frames_file" not in small
+
+    result = run("frames", "--session", paths.session_id, "--at", "3000", "--window", "3000")
+    assert result["truncated"] is True and result["_chars"] < 30_000
+    assert "frames_file" in result["truncated_note"]
+    target = Path(result["frames_file"])
+    assert target == paths.agent_dir() / agent_output.FRAMES_FILE_NAME
+    whole = json.loads(target.read_text(encoding="utf-8"))
+    assert whole["truncated"] is False and "truncated_note" not in whole
+    frame = whole["frames"][0]
+    assert len(frame["drawings"]) == 300 and frame["clipboard"] == "c" * 60_000
+    assert all(len(entry["drawings"]) == 300 for entry in whole["window"]["screen1"])
+    assert whole["at_ms"] == result["at_ms"] == 3000

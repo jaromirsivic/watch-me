@@ -10,6 +10,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PySide6.QtCore import QPoint, Qt  # noqa: E402
 from test_editor import NEWEST, make_recording  # noqa: E402
+from tick_fixtures import IndexBuilder  # noqa: E402
 
 from watch_me.core.config import Config  # noqa: E402
 from watch_me.core.input_events import (  # noqa: E402
@@ -22,7 +23,6 @@ from watch_me.core.input_events import (  # noqa: E402
     WheelRecord,
     WindowRecord,
 )
-from watch_me.core.naming import sidecar_filename  # noqa: E402
 from watch_me.core.screens import RawScreen, assign_screen_ids  # noqa: E402
 from watch_me.editor.mouse_activity import PRESSED_FILL  # noqa: E402
 from watch_me.editor.mouse_details import (  # noqa: E402
@@ -33,7 +33,6 @@ from watch_me.editor.mouse_details import (  # noqa: E402
 )
 from watch_me.editor.mouse_details_dialog import LOADING, MouseDetailsDialog  # noqa: E402
 from watch_me.editor.window import EditorWindow  # noqa: E402
-from watch_me.host.runner import FrameIndex  # noqa: E402
 
 SCREENS = assign_screen_ids([RawScreen(0, 0, 320, 200, primary=True), RawScreen(320, 0, 160, 100)])
 
@@ -186,18 +185,15 @@ def test_injected_presses_do_not_light_a_button_but_are_named():
     assert m.action == "CLICK left" and m.injected == "yes"
 
 
-def test_clipboard_changes_are_read_from_one_sidecar_per_tick(tmp_path: Path):
+def test_clipboard_changes_are_read_once_per_tick_from_the_index(tmp_path: Path):
     info = tmp_path / "frames_info"
-    info.mkdir()
+    index = IndexBuilder(info)
     for t, clip in ((0, None), (500, "copied"), (1000, None)):
         for sid in ("screen1", "screen2"):
-            data = {"time_ms": t, "screen": sid}
-            if clip is not None:
-                data["clipboard"] = clip
-            (info / sidecar_filename(t, sid)).write_text(json.dumps(data), encoding="utf-8")
-    (info / sidecar_filename(1500, "screen1")).write_text('{"clipboard": ', encoding="utf-8")
-    changes = read_clipboard_changes(FrameIndex(tmp_path / "frames", info))
-    assert changes == [ClipboardChange(500, "copied")]
+            index.add(t, sid, {"time_ms": t, "screen": sid, "clipboard": clip})
+    index.write()
+    assert read_clipboard_changes(info) == [ClipboardChange(500, "copied")]
+    assert read_clipboard_changes(tmp_path / "no_index") == []
 
 
 def test_dialog_fills_every_field_and_colours_held_buttons(qtbot):
@@ -287,14 +283,10 @@ def _write_mouse_log(paths) -> None:
     path = paths.mouse_log_path(paths.final_dir)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("\n".join(json.dumps(line) for line in lines) + "\n", encoding="utf-8")
-    sidecar = paths.frames_info_dir(paths.final_dir) / sidecar_filename(500, "screen1")
-    data = json.loads(sidecar.read_text(encoding="utf-8"))
-    data["clipboard"] = "copied text"
-    sidecar.write_text(json.dumps(data), encoding="utf-8")
 
 
 def test_clicking_the_mouse_opens_the_window_that_follows_the_playhead(qtbot, tmp_path: Path):
-    paths = make_recording(tmp_path, NEWEST)
+    paths = make_recording(tmp_path, NEWEST, clipboard={500: "copied text"})
     _write_mouse_log(paths)
     window = EditorWindow(Config(recording_folder=tmp_path))
     qtbot.addWidget(window)

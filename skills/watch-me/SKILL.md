@@ -197,9 +197,9 @@ One event per line, ordered by time in milliseconds since the recording started:
   `arrow`), color, screen and geometry in pixels of that screen's image, origin top-left
   - `corners` (two opposite corners) of a rectangle or of an ellipse's bounding box,
   `from`/`to` of a line, `tail`/`head` of an arrow (`ends` of an arrow with a head at
-  both ends, `(double-headed, Shift)`; in the sidecar `heads: "both"`), `bbox` of a
+  both ends, `(double-headed, Shift)`; in `frames` `heads: "both"`), `bbox` of a
   brush stroke (its full
-  `path` is in the sidecar). `(on the sketch canvas)` marks a shape drawn on the white
+  `path` is in the `drawings` of `frames --at <after>` without `--no-drawings`). `(on the sketch canvas)` marks a shape drawn on the white
   canvas (see `SKETCH`), not on the screen. `pressed`/`released` are the mouse press and
   release; `frames before` is the last frame without the shape, `frames after` the
   first one showing it. A shape enters the timeline only once the mouse button is
@@ -231,7 +231,7 @@ One event per line, ordered by time in milliseconds since the recording started:
   sketching an idea - a layout, a diagram, a flow - not pointing at something on the
   screen, and the frames show only the canvas with the shapes; what was on the screen
   is in the frames before `SKETCH on`. Each frame says it as `background` (`screen`,
-  `sketch`, or null while not drawing), each shape as `background` in the sidecar.
+  `sketch`, or null while not drawing), each shape as its own `background` in `drawings`.
 - `GRID on` / `GRID off` - while drawing, the user held Ctrl (`Ctrl held` / `Ctrl
   released`) or pressed the Snap to grid button (`Snap to grid switched on` / `off`;
   then the grid can stay on for a long time without Ctrl): the points of rectangles,
@@ -319,7 +319,7 @@ dialog here", the look of something). Skip the rest.
   without a shape use a moment inside the segment (its start, or the middle of a long
   one) and the cursor screen the `SAY` line names (or `--screen cursor`).
 - The frame returned is the latest one at or before `--at`. Each entry has `image`
-  (open it with your image viewing tool), `sidecar`, `cursor` `{screen, x, y}` (pixels
+  (open it with your image viewing tool), `cursor` `{screen, x, y}` (pixels
   of that image), `drawing_now`, `zoom`, `background`, `grid` and `clipboard`; `--no-drawings` replaces the
   repeated list of shapes (already in the timeline) by `drawing_ids`. Without it each
   frame carries `drawings`: every finished shape on screen with `id`, `tool`, `color`,
@@ -329,10 +329,12 @@ dialog here", the look of something). Skip the rest.
 - Avoid `--screen all` and `--window` unless one image does not settle it; they list
   many frames. `--window` lists at most 24 frames (the nearest ones), and a result
   that would get too long is shortened: `truncated` true, `truncated_note` says what
-  was left out (shapes, a long `clipboard`) - the frame's sidecar has it.
+  was left out (shapes, a long `clipboard`) - the whole result is then in the file
+  `frames_file` (JSON; read it with your file tool).
 
-Frames are named `<seconds>_<millis>_<screenId>.<png|jpg>` in `frames_dir`; their
-sidecars `<same>.json` lie in `frames_info_dir` (`frames_info/`), the microphone in
+Frames are named `<seconds>_<millis>_<screenId>.<png|jpg>` in `frames_dir`; what every
+tick showed (cursor, shapes, clipboard) is one line of `frames_info/index.jsonl` in
+`frames_info_dir` - read it through `timeline` and `frames`, not directly - the microphone in
 `audio/audio.wav` and, on Windows, what the computer played meanwhile (a video in
 the background, a call) in `audio/computer.wav` (`computer_audio` in the manifest),
 the mouse in `input/mouse.jsonl` (`mouse` in the manifest; read it through `timeline`
@@ -345,7 +347,7 @@ recording older than `archive_after_days`) has no frame images and no WAV audio 
 the frames, and every audio track is kept as `archive/audio.m4a` (microphone) and
 `archive/computer.m4a` (computer audio), also a track the user had switched off (the
 MP4 holds only the tracks that were on, see `archive/tracks.json`; no such file: all);
-`timeline` still works (sidecars and transcript stay), `frames` returns
+`timeline` still works (the tick index and the transcript stay), `frames` returns
 `image: null`, and `describe`/`timeline`/`frames` carry an `archive` object with the
 paths. `describe --session <session_id>` returns the paths, the
 manifest (screens, capture interval, keypoints), `instructions` and, only when it is

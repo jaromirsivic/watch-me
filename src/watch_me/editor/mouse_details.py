@@ -14,18 +14,18 @@ that moment:
   double click, the start of a scroll and where the cursor rested), how old that is,
   its parents, bounds in pixels of the screen image, the drop target and its content;
 * the window of the latest mouse event and since when the user worked in it;
-* the latest text copied before the moment (frame sidecars), when, its length and
+* the latest text copied before the moment (the tick index), when, its length and
   which copy of the recording it is;
 * the mouse actions around the moment as timeline lines.
 
-Built once per recording in a worker (the clipboard needs one sidecar per tick), then
+Built once per recording in a worker (the clipboard is read from the tick index), then
 every lookup is a bisection, fast enough to run on each playhead step.
 """
 
 from __future__ import annotations
 
 import bisect
-import json
+import logging
 from collections.abc import Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -39,13 +39,14 @@ from watch_me.core.input_events import (
     WheelRecord,
 )
 from watch_me.core.mouse_actions import MouseAction, Point, derive_actions, path_length
-from watch_me.core.naming import frame_base
 from watch_me.core.screens import Screen
+from watch_me.core.tick_index import NoIndexError, TickIndex
 from watch_me.core.timeline import format_timestamp
 from watch_me.host.mouse_timeline import BUTTON_NAMES, action_lines
-from watch_me.host.runner import FrameIndex
 
 from .mouse_activity import MIN_LIT_MS
+
+log = logging.getLogger(__name__)
 
 BUTTONS = ("left", "middle", "right", "x1", "x2")
 WHEEL_DIRECTIONS = ("up", "down", "left", "right")
@@ -129,29 +130,19 @@ def _element_label(el: ElementRecord) -> str:
     return f"{el.role} {_quote(el.name)}" if el.name else el.role
 
 
-def read_clipboard_changes(index: FrameIndex) -> list[ClipboardChange]:
-    """Every text copied during the recording, from the frame sidecars (one per tick)."""
-    owner: dict[int, str] = {}
-    for screen_id in reversed(index.screens):  # the first screen of a tick wins
-        for name in index.by_screen[screen_id]:
-            owner[name.time_ms] = screen_id
-    changes: list[ClipboardChange] = []
-    for time_ms in sorted(owner):
-        sidecar = index.info_dir / f"{frame_base(time_ms, owner[time_ms])}.json"
-        try:
-            raw = sidecar.read_bytes()
-        except OSError:
-            continue
-        if b'"clipboard"' not in raw:
-            continue  # most sidecars: no need to parse them
-        try:
-            data = json.loads(raw.decode("utf-8"))
-        except ValueError:
-            continue
-        text = data.get("clipboard") if isinstance(data, dict) else None
-        if isinstance(text, str):
-            changes.append(ClipboardChange(time_ms, text))
-    return changes
+def read_clipboard_changes(info_dir: Path) -> list[ClipboardChange]:
+    """Every text copied during the recording, from the tick index in ``info_dir``
+    (none when the recording has no index)."""
+    try:
+        ticks = TickIndex.load(info_dir)
+    except (NoIndexError, OSError) as exc:
+        log.warning("no clipboard history: %s", exc)
+        return []
+    return [
+        ClipboardChange(time_ms, text)
+        for time_ms, text in ticks.clipboard_changes()
+        if isinstance(text, str)
+    ]
 
 
 @dataclass(frozen=True)
@@ -441,11 +432,10 @@ def load_mouse_details(
     params: MouseSystemParams | None,
     duration_ms: int,
     screens: Iterable[Screen],
-    frames_dir: Path,
     info_dir: Path,
 ) -> MouseDetails:
-    """Build the details of a recording (reads every sidecar: run it in a worker)."""
-    clipboard = read_clipboard_changes(FrameIndex(frames_dir, info_dir))
+    """Build the details of a recording (reads the tick index: run it in a worker)."""
+    clipboard = read_clipboard_changes(info_dir)
     return MouseDetails(log, params, duration_ms, screens, clipboard)
 
 

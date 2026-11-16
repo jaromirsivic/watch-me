@@ -155,7 +155,7 @@ class _Frames:
                     paths.archive_dir(base), paths.frames_info_dir(base), list(item.screen_ids)
                 )
             else:
-                self.index = FrameIndex.of(paths, base)
+                self.index = FrameIndex.of(paths, base, with_ticks=False)
         except OSError:
             self.index = None
         by_screen = self.index.by_screen if self.index is not None else {}
@@ -166,7 +166,7 @@ class _Frames:
         if not times or self.index is None:
             return None
         position = max(0, bisect.bisect_right(times, time_ms) - 1)
-        return self.index._ref(self.index.by_screen[screen_id][position]).image
+        return self.index.ref(self.index.by_screen[screen_id][position]).image
 
 
 def separator_color(palette: QPalette) -> QColor:

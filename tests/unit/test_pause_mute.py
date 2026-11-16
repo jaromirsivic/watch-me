@@ -8,7 +8,7 @@ import time
 from pathlib import Path
 
 import numpy as np
-from test_recorder_sidecars import FakeGrabber, FakePlatform
+from test_recorder_index import FakeGrabber, FakePlatform
 
 from watch_me.capture import computer_audio as ca
 from watch_me.capture import recorder as recorder_mod

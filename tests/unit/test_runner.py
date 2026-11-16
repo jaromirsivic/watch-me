@@ -6,12 +6,14 @@ import json
 from pathlib import Path
 
 import pytest
+from tick_fixtures import IndexBuilder
 
 from watch_me.core.config import Config
 from watch_me.core.manifest import Manifest, write_manifest
-from watch_me.core.naming import frame_filename, sidecar_filename
+from watch_me.core.naming import frame_filename
 from watch_me.core.screens import RawScreen, assign_screen_ids
 from watch_me.core.session import SessionPaths, SessionState, Status, write_state
+from watch_me.core.tick_index import index_path
 from watch_me.host import runner
 
 
@@ -26,13 +28,13 @@ def make_recording(root: Path, session_id: str = "20260101-120000") -> SessionPa
             RawScreen(100, 0, 50, 50),
         ]
     )
+    index = IndexBuilder(info, interval_ms=250)
     for t in (0, 250, 500, 750):
         cursor = {"screen": "screen2" if t >= 500 else "screen1", "x": t % 50, "y": 1}
         for sid in ("screen1", "screen2"):
             (frames / frame_filename(t, sid, "png")).write_bytes(b"\x89PNG")
-            (info / sidecar_filename(t, sid)).write_text(
-                json.dumps({"time_ms": t, "screen": sid, "cursor": cursor}), encoding="utf-8"
-            )
+            index.add(t, sid, {"time_ms": t, "screen": sid, "cursor": cursor})
+    index.write()
     write_manifest(
         paths.manifest_path(paths.work_dir),
         Manifest(
@@ -75,20 +77,29 @@ def test_frames_at_all_and_window(tmp_path: Path):
         runner.frames_at(paths, 0, screen="screen9")
 
 
-def many_frames(root: Path, sidecar: dict, count: int = 41) -> SessionPaths:
-    """A saved recording with ``count`` ticks (every 500 ms) of two screens."""
+def test_frames_at_needs_the_tick_index(tmp_path: Path):
+    paths = make_recording(tmp_path)
+    index_path(paths.frames_info_dir(paths.final_dir)).unlink()
+    with pytest.raises(runner.SessionError) as raised:
+        runner.frames_at(paths, 300)
+    assert raised.value.code == "NO_INDEX"
+
+
+def many_frames(root: Path, extra: dict, count: int = 41) -> SessionPaths:
+    """A saved recording with ``count`` ticks (every 500 ms) of two screens; every tick
+    also shows ``extra``."""
     paths = SessionPaths(root, "20260101-120000")
     final = paths.final_dir
     paths.frames_dir(final).mkdir(parents=True)
     paths.frames_info_dir(final).mkdir()
+    index = IndexBuilder(paths.frames_info_dir(final))
     for i in range(count):
         t = i * 500
         for sid in ("screen1", "screen2"):
             (paths.frames_dir(final) / frame_filename(t, sid, "png")).write_bytes(b"\x89PNG")
             data = {"time_ms": t, "screen": sid, "cursor": {"screen": "screen1", "x": 1, "y": 2}}
-            (paths.frames_info_dir(final) / sidecar_filename(t, sid)).write_text(
-                json.dumps({**data, **sidecar}), encoding="utf-8"
-            )
+            index.add(t, sid, {**data, **extra})
+    index.write()
     return paths
 
 
@@ -137,7 +148,7 @@ def test_frames_stay_small_with_many_shapes_and_a_long_copied_text(tmp_path: Pat
     result = runner.frames_at(huge, 10_000, screen="all", window_ms=10_000)
     assert chars(result) < runner.FRAMES_MAX_CHARS
     slim = result["window"]["screen1"][0]
-    assert set(slim) == {"screen", "time_ms", "image", "sidecar", "cursor"}
+    assert set(slim) == {"screen", "time_ms", "image", "cursor"}
     frame = result["frames"][0]
     assert len(frame["drawing_ids"]) == 300 and "drawings" not in frame
     assert frame["clipboard_chars"] == 65_535

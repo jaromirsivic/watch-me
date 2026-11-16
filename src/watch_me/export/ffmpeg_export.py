@@ -34,6 +34,7 @@ from watch_me.core.config import EXPORT_FPS, Config
 from watch_me.core.manifest import read_manifest
 from watch_me.core.naming import FrameName
 from watch_me.core.screens import find_screen
+from watch_me.core.tick_index import NO_INDEX
 from watch_me.core.transcript import read_transcript
 from watch_me.host.runner import FrameIndex
 from watch_me.transcribe.ffmpeg import FfmpegNotFound, _creation_flags, ensure_ffmpeg
@@ -45,8 +46,9 @@ from .plan import (
     concat_list_text,
     cursor_expressions,
     cursor_keyframes,
+    cursor_moments,
     plan_frames,
-    sidecar_cursor_reader,
+    tick_cursor_reader,
 )
 from .srt import write_srt
 
@@ -497,7 +499,7 @@ def export_recording(
     if not frames_dir.is_dir():
         raise ExportError("NO_FRAMES", f"no frames directory in {base}")
     index = FrameIndex.of(paths, base)
-    names = [n for n in index.by_screen.get(screen.id, []) if not n.is_sidecar]
+    names = [n for n in index.by_screen.get(screen.id, []) if not n.without_image]
     if not names:
         raise ExportError("NO_FRAMES", f"no frames of {screen.id} in {frames_dir}")
 
@@ -551,8 +553,14 @@ def export_recording(
         cursor: tuple[str, str] | None = None
         if request.draw_cursor:
             write_cursor_png(work / CURSOR_PNG_NAME)
+            ticks = index.ticks
+            if ticks is None:
+                raise ExportError(NO_INDEX, f"the recording has no tick index in {index.info_dir}")
             keyframes = cursor_keyframes(
-                planned, sidecar_cursor_reader(index.info_dir), screen.id, CURSOR_HOTSPOT
+                cursor_moments(ticks, start_ms, end_ms),
+                tick_cursor_reader(ticks),
+                screen.id,
+                CURSOR_HOTSPOT,
             )
             cursor = cursor_expressions(keyframes)
         graph = filter_graph(cursor, len(audio_inputs))

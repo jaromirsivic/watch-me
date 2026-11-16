@@ -26,7 +26,6 @@ died can still be finished (see :mod:`watch_me.host.recovery`).
 
 from __future__ import annotations
 
-import json
 import logging
 import shutil
 import threading
@@ -49,9 +48,10 @@ from watch_me.core.manifest import (
     MouseInfo,
     write_manifest,
 )
-from watch_me.core.naming import frame_filename, sidecar_filename
+from watch_me.core.naming import frame_filename
 from watch_me.core.screens import Screen, assign_screen_ids
 from watch_me.core.session import SessionPaths, now_iso
+from watch_me.core.tick_index import TickIndexWriter, index_path
 from watch_me.core.timeline import RecordingClock
 from watch_me.platform.base import Platform, PlatformError
 
@@ -130,6 +130,7 @@ class RecordingSummary:
     error: str | None = None
     keypoints: list[int] = field(default_factory=list)
     failed_grabs: int = 0  # screen grabs that failed (that screen has no frame then)
+    tick_count: int = 0  # ticks stored in the tick index
     stop_reason: str | None = None  # a StopReason value, None when the user stopped
     computer_audio: AudioResult | None = None  # what the computer played (loopback)
     mouse: MouseInfo | None = None  # input/mouse.jsonl; None when not recorded
@@ -175,6 +176,7 @@ class RecordingSummary:
             computer_audio=computer,
             frames=FramesInfo(
                 count=self.frame_count,
+                ticks=self.tick_count,
                 dropped_ticks=self.dropped_ticks,
                 failed_grabs=self.failed_grabs,
             ),
@@ -244,6 +246,7 @@ class Recorder:
         self._mouse_info: MouseInfo | None = None
         self._mouse_thread: threading.Thread | None = None
         self._frame_count = 0
+        self._tick_count = 0
         self._dropped_ticks = 0
         self._failed_grabs = 0
         self._grab_failing = False
@@ -254,22 +257,22 @@ class Recorder:
         self._summary: RecordingSummary | None = None
         # Called from the capture thread at every tick; returns the finished shapes on
         # the screen right now (see ui.overlay.DrawingOverlay.drawings). Stored in the
-        # sidecar of every frame of the tick as ``drawings``.
+        # tick index: every shape once (``shapes``), then the ids on screen (``visible``).
         self.drawings_provider: DrawingsProvider | None = None
         # The shape being drawn right now ({tool, color, screen, started_ms}, no
         # geometry; ui.overlay.DrawingOverlay.drawing_now), stored as ``drawing_now``
         # (null while nothing is being drawn).
         self.drawing_now_provider: DrawingNowProvider | None = None
         # Same for the zoom of the drawing canvas (ui.overlay.DrawingOverlay.zoom):
-        # which screens show a magnified region, stored in the sidecars as ``zoom``.
+        # which screens show a magnified region, stored in the tick index as ``zoom``.
         self.zoom_provider: DrawingsProvider | None = None
         # What the drawing layer shows behind the shapes (ui.overlay.DrawingOverlay.
         # background): "screen", "sketch" (the white canvas) or None while not drawing;
-        # stored in the sidecars as ``background``.
+        # stored in the tick index as ``background``.
         self.background_provider: BackgroundProvider | None = None
         # The snapping grid (ui.overlay.DrawingOverlay.grid): {screen id: spacing in pixels
         # of that screen's image} while snapping in drawing mode (Ctrl or Snap to grid),
-        # else None; stored in every sidecar as ``grid`` (that screen's spacing, null
+        # else None; stored in the tick index as ``grid`` ({screen: spacing}, null
         # while not snapping).
         self.grid_provider: GridProvider | None = None
         # Why the points snap (ui.overlay.DrawingOverlay.grid_source): "toggle" (Snap to
@@ -277,7 +280,7 @@ class Recorder:
         self.grid_source_provider: BackgroundProvider | None = None
         # The text clipboard (ui.clipboard.ClipboardTracker.take): a text the user copied
         # since the previous tick (at most 65535 characters, "..." when cut), stored as
-        # ``clipboard`` in the sidecars of this tick only; None (null) in every other tick.
+        # ``clipboard`` in the index line of this tick only; no other tick has it.
         self.clipboard_provider: ClipboardProvider | None = None
         # Native handles of the drawing layer's windows (set by the control window on
         # the GUI thread, read by the mouse thread): a click there is "drawing", not a
@@ -437,8 +440,15 @@ class Recorder:
 
     @property
     def frame_count(self) -> int:
+        """Images written so far (one per screen and tick)."""
         with self._lock:
             return self._frame_count
+
+    @property
+    def tick_count(self) -> int:
+        """Ticks stored in the index so far."""
+        with self._lock:
+            return self._tick_count
 
     @property
     def dropped_ticks(self) -> int:
@@ -634,6 +644,7 @@ class Recorder:
             error=self._error,
             keypoints=self.keypoints,
             failed_grabs=self.failed_grabs,
+            tick_count=self.tick_count,
             stop_reason=str(self._stop_reason) if self._stop_reason else None,
             computer_audio=self._computer_result,
             mouse=self._mouse_info,
@@ -759,7 +770,18 @@ class Recorder:
         next_disk_check_ns = 0
         empty_ticks = 0
         frames_dir = self.paths.frames_dir(self.paths.work_dir)
+        index: TickIndexWriter | None = None
         try:
+            # What every tick showed goes into one file, a line per tick, written here:
+            # the images are encoded by the pool and finish out of order.
+            index = TickIndexWriter(
+                index_path(self.paths.frames_info_dir(self.paths.work_dir)),
+                {
+                    "interval_ms": self.config.capture_interval_ms,
+                    "image_format": self.config.image_format,
+                    "screens": [screen.id for screen in self.screens],
+                },
+            )
             with ScreenGrabber() as grabber:
                 while not self._stop_event.is_set():
                     if self.clock.paused:
@@ -823,6 +845,7 @@ class Recorder:
                                 log.debug("screen grabber close failed", exc_info=True)
                         continue
                     empty_ticks = 0
+                    self._index_tick(index, tick)
                     assert self._pool is not None
                     future = self._pool.submit(self._write_tick, tick)
                     future.add_done_callback(self._tick_done)
@@ -832,6 +855,9 @@ class Recorder:
             self._stop_reason = StopReason.CAPTURE_FAILED
             self._stop_event.set()
             self._on_event(RecorderEvent.ERROR, self._error)
+        finally:
+            if index is not None:
+                index.close()
 
     def _grab_screens(self, grabber: ScreenGrabber) -> list[RawFrame]:
         """Every screen that can be grabbed right now; a failing one is skipped."""
@@ -905,9 +931,27 @@ class Recorder:
                 log.exception("clipboard provider failed")
         return tick
 
+    def _index_tick(self, index: TickIndexWriter, tick: _Tick) -> None:
+        """The tick's line of the index (capture thread; ``OSError`` ends the capture)."""
+        grabbed = {frame.screen_id for frame in tick.frames}
+        index.write(
+            tick.time_ms,
+            cursor=tick.cursor.to_json() if tick.cursor else None,
+            drawings=tick.drawings,
+            drawing_now=tick.drawing_now,
+            zoom=tick.zoom,
+            background=tick.background,
+            grid=tick.grid,
+            grid_source=tick.grid_source,
+            clipboard=tick.clipboard,
+            failed=[screen.id for screen in self.screens if screen.id not in grabbed],
+        )
+        with self._lock:
+            self._tick_count += 1
+
     def _write_tick(self, tick: _Tick) -> int:
+        """Encode and write the images of a tick (a pool thread)."""
         frames_dir = self.paths.frames_dir(self.paths.work_dir)
-        info_dir = self.paths.frames_info_dir(self.paths.work_dir)
         written = 0
         for frame in tick.frames:
             data = encode_frame(frame, self.config.image_format, self.config.jpeg_quality)
@@ -915,22 +959,6 @@ class Recorder:
                 tick.time_ms, frame.screen_id, self.config.image_format
             )
             image_path.write_bytes(data)
-            sidecar = {
-                "time_ms": tick.time_ms,
-                "screen": frame.screen_id,
-                "cursor": tick.cursor.to_json() if tick.cursor else None,
-                "drawings": tick.drawings,
-                "drawing_now": tick.drawing_now,
-                "zoom": tick.zoom,
-                "background": tick.background,
-                "grid": (tick.grid or {}).get(frame.screen_id),
-                "grid_source": tick.grid_source if tick.grid else None,
-                "clipboard": tick.clipboard,
-                "captured_at": now_iso(),
-            }
-            (info_dir / sidecar_filename(tick.time_ms, frame.screen_id)).write_text(
-                json.dumps(sidecar), encoding="utf-8"
-            )
             written += 1
         return written
 
@@ -944,11 +972,6 @@ class Recorder:
             return
         with self._lock:
             self._frame_count += written
-
-
-def write_sidecar_index(frames_dir: Path) -> int:
-    """Count frames in a directory (used by status reporting)."""
-    return sum(1 for p in frames_dir.iterdir() if p.suffix.lower() in {".png", ".jpg"})
 
 
 __all__ = [

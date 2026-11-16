@@ -42,6 +42,7 @@ from watch_me.core.session import (
     read_state,
     write_state,
 )
+from watch_me.core.tick_index import index_path
 from watch_me.host.runner import FrameIndex
 from watch_me.platform.process import pid_alive
 
@@ -116,7 +117,7 @@ def _screens_from_frames(index: FrameIndex) -> list[Screen]:
     screens: list[Screen] = []
     left = 0
     for number, screen_id in enumerate(index.screens, start=1):
-        first = next((n for n in index.by_screen[screen_id] if not n.is_sidecar), None)
+        first = next((n for n in index.by_screen[screen_id] if not n.without_image), None)
         if first is None:
             continue
         try:
@@ -142,6 +143,10 @@ def _screens_from_frames(index: FrameIndex) -> list[Screen]:
 
 
 def _interval_from_frames(index: FrameIndex) -> int:
+    """The capture interval: what the tick index says, else the usual step between
+    the frames of a screen."""
+    if index.ticks is not None and index.ticks.interval_ms:
+        return max(1, index.ticks.interval_ms)
     for screen_id in index.screens:
         times = [name.time_ms for name in index.by_screen[screen_id]]
         steps = [b - a for a, b in zip(times, times[1:], strict=False) if b > a]
@@ -156,7 +161,9 @@ def _finished_at(index: FrameIndex) -> str:
     for screen_id in index.screens:
         last = index.by_screen[screen_id][-1]
         try:
-            written = index.image_of(last) or index.info_dir / last.filename
+            # A frame without an image is known from the tick index: when that was
+            # written last.
+            written = index.image_of(last) or index_path(index.info_dir)
             newest = max(newest, written.stat().st_mtime)
         except OSError:
             continue
@@ -179,7 +186,9 @@ def _completed_manifest(paths: SessionPaths, index: FrameIndex) -> Manifest | No
             )
     if manifest is not None and not manifest.in_progress:
         return manifest  # saving got as far as the manifest; only the move is missing
-    frame_count = sum(len(names) for names in index.by_screen.values())
+    frame_count = sum(
+        1 for names in index.by_screen.values() for name in names if not name.without_image
+    )
     last_frame_ms = max(names[-1].time_ms for names in index.by_screen.values())
     audio = _audio_info(paths.audio_path(work), manifest.audio if manifest else None)
     duration_ms = max(last_frame_ms, audio.duration_ms)
@@ -189,14 +198,19 @@ def _completed_manifest(paths: SessionPaths, index: FrameIndex) -> Manifest | No
         screens = _screens_from_frames(index)
         if not screens:
             return None
-        first = index.by_screen[index.screens[0]][0]
+        stored_format = index.ticks.header.get("image_format") if index.ticks else None
+        is_png = any(
+            name.extension == "png" for names in index.by_screen.values() for name in names[:1]
+        )
         manifest = Manifest(
             session_id=paths.session_id,
             started_at="",
             finished_at=None,
             recorded_duration_ms=0,
             capture_interval_ms=_interval_from_frames(index),
-            image_format="png" if first.filename.lower().endswith(".png") else "jpeg",
+            image_format=stored_format
+            if stored_format in ("png", "jpeg")
+            else ("png" if is_png else "jpeg"),
             jpeg_quality=None,
             screens=screens,
             plugin_version=__version__,
@@ -218,7 +232,9 @@ def _completed_manifest(paths: SessionPaths, index: FrameIndex) -> Manifest | No
     else:
         manifest.computer_audio = None
     manifest.mouse = _mouse_info(paths.mouse_log_path(work), manifest.mouse)
-    manifest.frames = FramesInfo(count=frame_count)
+    manifest.frames = FramesInfo(
+        count=frame_count, ticks=len(index.ticks) if index.ticks is not None else 0
+    )
     manifest.stop_reason = RECOVERED_REASON
     manifest.notes.append(RECOVERED_NOTE)
     return manifest

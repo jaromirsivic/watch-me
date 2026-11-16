@@ -410,7 +410,7 @@ class _MouseDetailsSignals(QObject):
 
 
 class _MouseDetailsJob(QRunnable):
-    """Builds the Mouse window's data of a recording (reads every frame sidecar)."""
+    """Builds the Mouse window's data of a recording (reads the tick index)."""
 
     def __init__(self, recording: LoadedRecording, signals: _MouseDetailsSignals) -> None:
         super().__init__()

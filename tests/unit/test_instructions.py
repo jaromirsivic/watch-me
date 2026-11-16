@@ -5,6 +5,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from tick_fixtures import IndexBuilder
+
 from watch_me.core.crop import Crop
 from watch_me.core.instructions import (
     MAX_INSTRUCTIONS_CHARS,
@@ -13,10 +15,11 @@ from watch_me.core.instructions import (
     write_instructions,
 )
 from watch_me.core.manifest import Manifest, read_manifest, write_manifest
+from watch_me.core.naming import frame_filename
 from watch_me.core.screens import RawScreen, assign_screen_ids
 from watch_me.core.session import SessionPaths, SessionState, Status, read_state, write_state
 from watch_me.host import editor_session as es
-from watch_me.host.runner import FrameRef, describe_recording, session_status
+from watch_me.host.runner import FrameIndex, FrameRef, describe_recording, session_status
 
 
 def _editing_state(paths: SessionPaths, pid: int = 1) -> None:
@@ -136,16 +139,22 @@ def test_describe_reports_instructions_and_keypoints(tmp_path: Path):
     assert describe_recording(paths)["keypoints"] == []
 
 
+def _frame_ref(folder: Path, time_ms: int, shown: dict) -> FrameRef:
+    """The screen1 frame at ``time_ms`` of a recording whose one tick showed ``shown``."""
+    frames, info = folder / "frames", folder / "frames_info"
+    frames.mkdir(parents=True, exist_ok=True)
+    (frames / frame_filename(time_ms, "screen1", "png")).write_bytes(b"x")
+    index = IndexBuilder(info)
+    index.add(time_ms, "screen1", shown)
+    index.write()
+    ref = FrameIndex(frames, info).at("screen1", time_ms)
+    assert ref is not None
+    return ref
+
+
 def test_frame_ref_reports_the_clipboard(tmp_path: Path):
-    image = tmp_path / "0_500_screen1.png"
-    sidecar = tmp_path / "0_500_screen1.json"
-    image.write_bytes(b"x")
-    sidecar.write_text(
-        json.dumps({"cursor": {"screen": "screen1", "x": 1, "y": 2}, "clipboard": "hello"}),
-        encoding="utf-8",
-    )
-    data = FrameRef("screen1", 500, image, sidecar).to_dict()
+    shown = {"cursor": {"screen": "screen1", "x": 1, "y": 2}, "clipboard": "hello"}
+    data = _frame_ref(tmp_path, 500, shown).to_dict()
     assert data["clipboard"] == "hello"
     assert data["cursor"] == {"screen": "screen1", "x": 1, "y": 2}
-    sidecar.write_text(json.dumps({"cursor": None}), encoding="utf-8")
-    assert FrameRef("screen1", 500, image, sidecar).to_dict()["clipboard"] is None
+    assert _frame_ref(tmp_path, 500, {"cursor": None}).to_dict()["clipboard"] is None

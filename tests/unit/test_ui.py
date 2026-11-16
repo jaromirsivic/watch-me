@@ -197,6 +197,36 @@ def test_status_line_shows_transcription_lag_on_the_first_line(window, controlle
     assert second.endswith("frames  |  1 keypoint")
 
 
+def test_the_status_line_changes_once_a_second(window, controller, monkeypatch):
+    """The timer ticks five times a second; the text - with the frame counter - is
+    rewritten when the second changes, or at once with the state or a keypoint."""
+    window.record_button.click()
+    recorder = FakeRecorder.instances[-1]
+    elapsed = [5_000]
+    monkeypatch.setattr(FakeRecorder, "elapsed_ms", property(lambda self: elapsed[0]))
+    written: list[str] = []
+    set_text = window.status_label.setText
+
+    def counting(text: str) -> None:
+        written.append(text)
+        set_text(text)
+
+    monkeypatch.setattr(window.status_label, "setText", counting)
+    for step in range(5):  # 200 ms apart, within one second
+        elapsed[0] = 5_000 + 200 * step
+        recorder.frame_count = 10 + step
+        window._tick()
+    assert len(written) == 1 and written[0].endswith("10 frames")
+    elapsed[0] = 6_000
+    window._tick()
+    assert len(written) == 2 and written[1].endswith("14 frames")
+    window.insert_keypoint()  # shown at once, in the same second
+    window._tick()
+    assert len(written) == 3 and written[2].endswith("1 keypoint")
+    window._tick()
+    assert len(written) == 3
+
+
 def test_a_silent_microphone_is_shown_and_the_recording_goes_on(window, controller):
     window.record_button.click()
     recorder = FakeRecorder.instances[-1]

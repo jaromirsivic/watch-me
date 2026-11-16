@@ -8,7 +8,7 @@ Předchozí revize `watch-me-review-2026-11-13.md` je o den starší. Co z ní v
 
 ## Stav po opravách (15. 11. 2026)
 
-Podle [plánu oprav spouštěčů](implementation-plan-launcher-fixes.md). A4 až A6 jsou v commitu `c688bbb`; B1 a B2 podle [plánu pro zvuk](implementation-plan-audio-clock.md) v commitu `8375e67`; A2 podle [plánu pro přežití okna](implementation-plan-window-survival.md); D4 a C1 podle [plánu pro přepis](implementation-plan-transcript-safety.md).
+Podle [plánu oprav spouštěčů](implementation-plan-launcher-fixes.md). A4 až A6 jsou v commitu `c688bbb`; B1 a B2 podle [plánu pro zvuk](implementation-plan-audio-clock.md) v commitu `8375e67`; A2 podle [plánu pro přežití okna](implementation-plan-window-survival.md); D4 a C1 podle [plánu pro přepis](implementation-plan-transcript-safety.md); E1, F1 a část D2 podle [plánu pro formát nahrávky](implementation-plan-recording-format.md).
 
 | Nález | Stav | Co se změnilo |
 | --- | --- | --- |
@@ -20,6 +20,10 @@ Podle [plánu oprav spouštěčů](implementation-plan-launcher-fixes.md). A4 a�
 | B2 | vyřešeno v kódu, na skutečném zařízení nevyzkoušeno | Po 2 s bez zvuku z mikrofonu se stopa doplňuje tichem, stavový řádek ovládacího okna zčervená a každé 2 s se zkouší otevřít nastavený nebo výchozí vstup. Výpadek je v manifestu (`audio.gaps`) a v časové ose (`MIC LOST` / `MIC BACK`). Zvuk počítače přechází na nový výchozí výstup a nefunkční výstup zkouší znovu (`PC AUDIO LOST` / `PC AUDIO BACK`). Ověřeno jen s falešným zařízením v testech; odpojení skutečné náhlavní soupravy, Bluetooth a změna výstupu čekají na ruční zkoušku (plán, Z10). |
 | C1 | vyřešeno (plán [přepis, který se neztratí](implementation-plan-transcript-safety.md)) | `watch-me transcribe` naváže na uložené `transcribed_ms`, ukládá průběžně (nejvýš jednou za 5 s) a běží se sníženou prioritou; zabitý běh pokračuje dalším spuštěním. Hotový přepis nechá být, znovu od nuly jen s `--again`; předchozí přepis zůstane v `transcript.before-again.json`. Nahrávku přepisuje vždy jen jeden proces (zámek `.work/transcribe-<id>.lock`), druhý dostane `TRANSCRIPTION_BUSY`, editor počká a archivační fronta nahrávku odloží. |
 | D4 | vyřešeno (tentýž plán) | `transcript.json` a `.txt` se zapisují atomicky s vynuceným zápisem na disk. Nečitelný přepis se nepřepíše: odloží se jako `transcript.damaged.json` a `describe` i `timeline` to řeknou. Editor ukládá segmenty po dávkách (nejvýš jednou za 5 s, vždy na konci a při zastavení). |
+| E1 | vyřešeno (plán [formát nahrávky](implementation-plan-recording-format.md)) | Tah štětcem si drží nejvýš jeden bod za 20 ms a aktuální polohu (`core/stroke.py`). Geometrie tvaru je v nahrávce jednou: `frames_info/index.jsonl` má řádek na tik a v něm jen to, co se změnilo; sidecary u snímků už nevznikají. |
+| F1 | vyřešeno z hlavní části (tentýž plán) | `timeline`, `frames`, editor, render i archivace čtou stav tiků z jednoho souboru. Mezipaměť textu osy a stránkování v MCP, které osu skládá pro každou stránku znovu, zůstávají. |
+| D2 | zčásti (tentýž plán) | Souborů nahrávky je polovina (žádné sidecary) a seznam nahrávek index nečte. Sken v GUI vlákně a čtení přepisu při každém obnovení zůstávají. |
+| B3 | otevřené | Obrázek každé obrazovky se dál ukládá při každém tiku. Měření na třech nahrávkách dalo vynechávání shodných obrazovek nejvýš 13 až 43 % objemu, proto z plánu vypadlo; `scripts/frame_changes.py` měření zopakuje na dalších nahrávkách. |
 
 Jednotkové testy na Windows po A4–A6: 1137 prošlo, lint čistý. Neověřeno: nahrávka s řečí, hák myši, UI Automation a přepis jako podřízené procesy s `-I` ve skutečné relaci (ruční zkouška L8 bod 4 v plánu), Codex, Cursor, Linux a macOS mimo CI. Ostatní nálezy jsou beze změny.
 

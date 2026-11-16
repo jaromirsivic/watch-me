@@ -9,10 +9,11 @@ from pathlib import Path
 import anyio
 import pytest
 from PIL import Image as PilImage
+from tick_fixtures import IndexBuilder
 
 from watch_me.core.config import Config
 from watch_me.core.manifest import Manifest, write_manifest
-from watch_me.core.naming import frame_filename, sidecar_filename
+from watch_me.core.naming import frame_filename
 from watch_me.core.screens import RawScreen, assign_screen_ids
 from watch_me.core.session import SessionPaths, SessionState, Status, write_state
 from watch_me.core.transcript import Segment, Transcript, write_transcript
@@ -31,14 +32,14 @@ def make_recording(
     frames = paths.frames_dir(paths.work_dir)
     info = paths.frames_info_dir(paths.work_dir)
     screens = assign_screen_ids([RawScreen(0, 0, 64, 32, primary=True), RawScreen(64, 0, 64, 32)])
+    index = IndexBuilder(info, interval_ms=250, image_format=image_format)
     for t in (0, 250, 500, 750):
         cursor = {"screen": "screen2" if t >= 500 else "screen1", "x": 40, "y": 10}
         for sid, colour in (("screen1", "red"), ("screen2", "blue")):
             image = PilImage.new("RGB", (64, 32), colour)
             image.save(frames / frame_filename(t, sid, image_format))
-            (info / sidecar_filename(t, sid)).write_text(
-                json.dumps({"time_ms": t, "screen": sid, "cursor": cursor}), encoding="utf-8"
-            )
+            index.add(t, sid, {"time_ms": t, "screen": sid, "cursor": cursor})
+    index.write()
     write_manifest(
         paths.manifest_path(paths.work_dir),
         Manifest(
@@ -400,9 +401,9 @@ def test_get_frame_rejects_outside_paths(
         recording.session_id, path=str(sneaky), config_file=config_file
     )
     assert result["ok"] is False and result["code"] == "FRAME_OUTSIDE_SESSION"
-    sidecar = recording.frames_dir() / sidecar_filename(250, "screen1")
+    not_an_image = recording.frames_dir() / "0_250_screen1.json"
     result = mcp_server.tool_get_frame(
-        recording.session_id, path=str(sidecar), config_file=config_file
+        recording.session_id, path=str(not_an_image), config_file=config_file
     )
     assert result["ok"] is False and result["code"] == "NOT_A_FRAME"
 

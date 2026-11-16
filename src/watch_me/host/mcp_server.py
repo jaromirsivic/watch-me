@@ -58,6 +58,7 @@ from watch_me.host.events import (
 )
 from watch_me.host.mouse_timeline import DETAIL_PATH_POINTS
 from watch_me.host.runner import (
+    FRAME_STATE_KEYS,
     POLL_INTERVAL_S,
     FrameRef,
     SessionError,
@@ -65,6 +66,7 @@ from watch_me.host.runner import (
     describe_recording,
     frames_at,
     launch_control_window,
+    load_ticks,
     resolve_session,
     session_status,
     wait_for_session,
@@ -434,15 +436,17 @@ def _frame_from_path(paths: SessionPaths, path: str) -> FrameRef:
             f"{candidate} is not inside the frames directory {frames_dir}",
         )
     parsed = parse_frame_filename(candidate.name)
-    if parsed is None or parsed.is_sidecar or candidate.parent != frames_dir:
+    if parsed is None or parsed.without_image or candidate.parent != frames_dir:
         raise SessionError("NOT_A_FRAME", f"{candidate} is not a frame image")
     if not candidate.is_file():
         raise SessionError("NOT_FOUND", f"frame not found: {candidate}")
+    ticks = load_ticks(paths, paths.current_dir)
+    state = ticks.exact(parsed.time_ms) or ticks.at(parsed.time_ms)
     return FrameRef(
         screen_id=parsed.screen_id,
         time_ms=parsed.time_ms,
         image=candidate,
-        sidecar=paths.frames_info_dir(paths.current_dir) / f"{parsed.base}.json",
+        state=state.for_screen(parsed.screen_id) if state is not None else None,
     )
 
 
@@ -463,7 +467,7 @@ def _frame_at(paths: SessionPaths, at_ms: int, screen: str) -> FrameRef:
         screen_id=ref["screen"],
         time_ms=ref["time_ms"],
         image=Path(ref["image"]),
-        sidecar=Path(ref["sidecar"]),
+        state={key: ref.get(key) for key in FRAME_STATE_KEYS},
     )
 
 

@@ -37,9 +37,7 @@ def make_frame(
     image.fill(FILL)
     path = root / f"{name}.png"
     assert image.save(str(path))
-    sidecar = root / f"{name}.json"
-    sidecar.write_text("{}", encoding="utf-8")
-    return FrameRef(screen_id=screen_id, time_ms=0, image=path, sidecar=sidecar)
+    return FrameRef(screen_id=screen_id, time_ms=0, image=path)
 
 
 def show(qtbot, view: PreviewWidget, ref: FrameRef, cursor: CursorPosition | None = None) -> None:

@@ -177,7 +177,8 @@ def test_archive_renders_every_screen_and_deletes_frames_and_audio(
         r, g, b = still.convert("RGB").getpixel((5, 5))
         assert abs(r - 100) < 12 and abs(g - 80) < 12 and abs(b - 40) < 12
     assert not recording.frames_dir(final).exists() and not recording.audio_dir(final).exists()
-    assert len(list(recording.frames_info_dir(final).glob("*.json"))) == 10  # sidecars stay
+    # The tick index stays (and is all that frames_info holds).
+    assert [p.name for p in recording.frames_info_dir(final).iterdir()] == ["index.jsonl"]
     assert recording.transcript_json_path(final).is_file()
     assert recording.manifest_path(final).is_file()
     assert reported[-1] == 1.0 and reported == sorted(reported)
@@ -648,7 +649,8 @@ def test_archived_recording_loads_stills_without_audio(recording: SessionPaths):
 def test_agent_sees_an_archived_recording(recording: SessionPaths):
     archive_recording(recording, Config(), exporter=FakeExporter())
     index = FrameIndex.of(recording, recording.final_dir)
-    assert len(index.by_screen["screen1"]) == 5  # from the sidecars
+    assert len(index.by_screen["screen1"]) == 5  # from the tick index
+    assert all(name.without_image for name in index.by_screen["screen1"])
     found = frames_at(recording, 1200, screen="screen1")
     assert found["frames"][0]["image"] is None and found["frames"][0]["cursor"] is not None
     assert found["archive"]["status"] == "archived"

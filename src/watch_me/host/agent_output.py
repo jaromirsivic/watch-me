@@ -30,6 +30,7 @@ PAGE_MIN_CHARS = 1_000
 PAGE_MAX_CHARS = 100_000
 
 TIMELINE_FILE_NAME = "timeline.txt"
+FRAMES_FILE_NAME = "frames.json"
 MOUSE_DETAIL_FILE_NAME = "mouse.jsonl"
 
 

@@ -13,7 +13,6 @@ describes that mix and opens a reader for it.
 from __future__ import annotations
 
 import bisect
-import json
 import logging
 from dataclasses import dataclass, replace
 from pathlib import Path
@@ -96,6 +95,8 @@ class StillFrames(FrameIndex):
     def __init__(self, archive_dir: Path, info_dir: Path, screen_ids: list[str]) -> None:
         self.frames_dir = archive_dir
         self.info_dir = info_dir
+        self.ticks = None  # a still shows no moment in particular: no state to look up
+        self._no_index = None
         self.by_screen = {
             sid: [FrameName(0, sid, "jpg")]
             for sid in screen_ids
@@ -107,7 +108,11 @@ class StillFrames(FrameIndex):
 
 
 def _load_frame_index(paths: SessionPaths, base: Path) -> FrameIndex:
-    return FrameIndex.of(paths, base)
+    """The frames and ticks of a recording that is not archived (``SessionError``
+    ``NO_INDEX`` when it has no tick index: the cursor would be missing everywhere)."""
+    index = FrameIndex.of(paths, base)
+    index.require_ticks()
+    return index
 
 
 def _load_mouse(paths: SessionPaths, base: Path) -> MouseLog | None:
@@ -151,14 +156,13 @@ class LoadedRecording:
         # Buttons and wheels in use over time (``input/mouse.jsonl``); None: not recorded.
         self.mouse: MouseActivity | None = None
         self.mouse_log: MouseLog | None = None
-        # Built on demand for the Mouse window (reads every sidecar): mouse_details().
+        # Built on demand for the Mouse window (reads the tick index): mouse_details().
         self._mouse_details: MouseDetails | None = None
         self._times: dict[str, list[int]] = {
             sid: [n.time_ms for n in names] for sid, names in frames.by_screen.items()
         }
         last_frame_ms = max((t[-1] for t in self._times.values() if t), default=0)
         self.duration_ms = manifest.recorded_duration_ms or last_frame_ms
-        self._cursor_cache: tuple[Path, CursorPosition | None] | None = None
         self._index_segments(transcript.segments if transcript else [])
 
     @classmethod
@@ -263,7 +267,7 @@ class LoadedRecording:
         if not times:
             return None
         index = max(0, bisect.bisect_right(times, time_ms) - 1)
-        return self.frames._ref(self.frames.by_screen[screen_id][index])
+        return self.frames.ref(self.frames.by_screen[screen_id][index])
 
     def next_frame_after(self, screen_id: str, time_ms: int) -> FrameRef | None:
         """The first frame strictly after ``time_ms`` (for decoding ahead)."""
@@ -273,7 +277,7 @@ class LoadedRecording:
         index = bisect.bisect_right(times, time_ms)
         if index >= len(times):
             return None
-        return self.frames._ref(self.frames.by_screen[screen_id][index])
+        return self.frames.ref(self.frames.by_screen[screen_id][index])
 
     # Mouse ------------------------------------------------------------------
 
@@ -287,8 +291,8 @@ class LoadedRecording:
         return self._mouse_details
 
     def mouse_details(self) -> MouseDetails:
-        """Mouse and clipboard by time for the Mouse window; the first call reads every
-        frame sidecar (call it from a worker), later calls return the same object."""
+        """Mouse and clipboard by time for the Mouse window; the first call reads the
+        tick index (call it from a worker), later calls return the same object."""
         if self._mouse_details is None:
             base = self.paths.final_dir
             mouse = self.manifest.mouse
@@ -297,27 +301,24 @@ class LoadedRecording:
                 mouse.params if mouse is not None else None,
                 self.duration_ms,
                 self.manifest.screens,
-                self.paths.frames_dir(base),
                 self.paths.frames_info_dir(base),
             )
         return self._mouse_details
 
     def cursor_at(self, screen_id: str, time_ms: int) -> CursorPosition | None:
-        """Cursor from the sidecar of the frame valid at ``time_ms`` (any screen); none
-        for an archived recording (its still image shows no moment in particular)."""
-        ref = self.frame_at(screen_id, time_ms)
-        if ref is None or self.archived:
+        """The cursor at the tick valid at ``time_ms`` (it may be on any screen); none
+        for a screen without frames and for an archived recording (its still image
+        shows no moment in particular)."""
+        ticks = self.frames.ticks
+        if ticks is None or self.archived or not self._times.get(screen_id):
             return None
-        if self._cursor_cache is not None and self._cursor_cache[0] == ref.sidecar:
-            return self._cursor_cache[1]
-        cursor: CursorPosition | None = None
+        state = ticks.at(time_ms)
+        if state is None:
+            return None
         try:
-            data = json.loads(ref.sidecar.read_text(encoding="utf-8"))
-            cursor = cursor_from_json(data.get("cursor"))
-        except (OSError, ValueError, KeyError, AttributeError, TypeError):
-            cursor = None
-        self._cursor_cache = (ref.sidecar, cursor)
-        return cursor
+            return cursor_from_json(state.cursor)
+        except (ValueError, KeyError, AttributeError, TypeError):
+            return None
 
     # Transcript -------------------------------------------------------------
 

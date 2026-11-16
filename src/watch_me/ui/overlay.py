@@ -24,7 +24,7 @@ windows (the control window) can be kept above the overlay with
 Sketch: the Sketch button (``S``) stays pressed while every screen shows a plain white
 canvas to sketch on and is released for the screens as they are (the default whenever
 drawing mode is entered); the shapes stay where they are either way. The
-background is reported for the frame sidecars (:meth:`DrawingOverlay.background`) and
+background is reported for the tick index (:meth:`DrawingOverlay.background`) and
 stored with every shape.
 
 Keyboard shortcuts, in every Watch Me window while drawing: ``Esc`` close,
@@ -86,7 +86,7 @@ All geometry is kept in Qt logical "canvas" coordinates of the window the shape 
 drawn in (the unzoomed screen); Qt maps them to physical pixels per screen (Windows
 per-monitor DPI is handled by Qt).
 
-For the frame sidecars the overlay also keeps a JSON-ready snapshot of the finished
+For the tick index the overlay also keeps a JSON-ready snapshot of the finished
 shapes (:meth:`DrawingOverlay.drawings`), with every point converted to pixels of the
 recorded screen image (that is, of the zoomed view while zoomed), of the shape being
 drawn right now (:meth:`DrawingOverlay.drawing_now`: tool, color, screen and start time
@@ -102,6 +102,7 @@ from __future__ import annotations
 import logging
 import math
 import sys
+import time
 from collections.abc import Callable
 from dataclasses import dataclass, field, replace
 from enum import StrEnum
@@ -154,6 +155,7 @@ from PySide6.QtWidgets import (
 )
 
 from watch_me.core.screens import Screen
+from watch_me.core.stroke import add_point
 
 from .icons import (
     arrow_icon,
@@ -323,6 +325,9 @@ class Shape:
     grid: int | None = None
     grid_toggle: bool = False
     heads: str = "end"
+    # When each point of a brush stroke came (milliseconds of a steady clock): only for
+    # thinning the stroke while it is drawn (watch_me.core.stroke), never written out.
+    point_times: list[float] = field(default_factory=list, repr=False, compare=False)
 
     @property
     def closed(self) -> bool:
@@ -358,12 +363,18 @@ def _screen_for_window(qscreen: QScreen, screens: list[Screen]) -> Screen | None
     return min(screens, key=lambda s: abs(s.x - origin.x()) + abs(s.y - origin.y()))
 
 
+def _stroke_clock_ms() -> float:
+    """The clock behind the thinning of brush strokes: steady, also while the
+    recording is paused or has not started (tests replace it)."""
+    return time.monotonic() * 1000.0
+
+
 def shape_to_json(shape: Shape, screen: Screen, device_pixel_ratio: float) -> dict[str, object]:
     """Describe one shape in pixels of ``screen``'s image (origin top-left).
 
     Rectangles, ellipses, lines and arrows carry ``from`` and ``to`` (two opposite
     corners of the bounding box, start and end, or tail and head); brush strokes carry
-    ``path``. Every point is ``{screen, x, y}`` like the cursor entry of a sidecar.
+    ``path``. Every point is ``{screen, x, y}`` like the cursor of a tick.
     ``id``, ``started_ms`` and ``finished_ms`` say which shape it is and when it was
     drawn (press and release on the recording timeline); ``background`` whether it was
     drawn on the screens (``screen``) or on the white sketch canvas (``sketch``).
@@ -684,7 +695,7 @@ class OverlayWindow(QWidget):
     def view_shapes(self, include_current: bool = True) -> list[Shape]:
         """Visible shapes mapped to window (view) coordinates; off-view shapes are left out.
 
-        ``include_current=False`` leaves out the shape still being dragged (the sidecars
+        ``include_current=False`` leaves out the shape still being dragged (the index
         describe finished shapes only).
         """
         shapes = self.painted_shapes if include_current else self.shapes
@@ -1121,6 +1132,8 @@ class OverlayWindow(QWidget):
             grid=controller.grid_px if snap else None,
             grid_toggle=snap and controller.grid_locked,
         )
+        if tool is Tool.BRUSH:
+            self._current.point_times = [_stroke_clock_ms()] * 2
         self._raw_end = pos
         self.update()
         controller._refresh_drawings()  # drawing_now: a shape is being drawn
@@ -1166,11 +1179,12 @@ class OverlayWindow(QWidget):
             return
         pos = self.to_canvas(event.position())
         if self._current.tool is Tool.BRUSH:
-            self._current.points.append(pos)
+            # At most one point in 20 ms and where the pointer is now (core.stroke).
+            add_point(self._current.points, self._current.point_times, pos, _stroke_clock_ms())
         else:
             self._raw_end = pos
             self._current.points[-1] = self._shaped_end(self._current)
-        # Only the screen changes: the sidecars describe the shape once it is finished.
+        # Only the screen changes: the index describes the shape once it is finished.
         self.update()
         event.accept()
 
@@ -1208,8 +1222,8 @@ class OverlayWindow(QWidget):
             return
         pos = self.to_canvas(event.position())
         if shape.tool is Tool.BRUSH:
-            if pos != shape.points[-1]:
-                shape.points.append(pos)
+            if pos != shape.points[-1]:  # where the button was released: always kept
+                add_point(shape.points, shape.point_times, pos, _stroke_clock_ms())
         else:
             self._raw_end = pos
             shape.points[-1] = self._shaped_end(shape)
@@ -1648,9 +1662,9 @@ class DrawingOverlay(QObject):
         self._shift = False  # Shift as last seen (mouse events, key events, polling)
         self._ctrl = False  # Ctrl as last seen: points snap to the grid while held
         self._grid_locked = False  # Snap to grid pressed: points snap without Ctrl
-        self._grid_source: str | None = None  # "ctrl" / "toggle" for the sidecars
+        self._grid_source: str | None = None  # "ctrl" / "toggle" for the tick index
         self._grid_px = DEFAULT_GRID_PX
-        self._grid: dict[str, int] | None = None  # grid spacing per screen for the sidecars
+        self._grid: dict[str, int] | None = None  # grid spacing per screen for the index
         # Where Shift is polled while a shape is being drawn (replaceable in tests).
         self._shift_source: Callable[[], Qt.KeyboardModifier] = (
             QGuiApplication.queryKeyboardModifiers
@@ -1722,7 +1736,7 @@ class DrawingOverlay(QObject):
     def background(self) -> str | None:
         """``"screen"`` or ``"sketch"`` while drawing, ``None`` while the overlay is hidden.
 
-        Read by the recorder from its capture thread for the frame sidecars (a plain
+        Read by the recorder from its capture thread for the tick index (a plain
         attribute read, like :meth:`drawings`).
         """
         if not self._visible:
@@ -1789,7 +1803,7 @@ class DrawingOverlay(QObject):
         self.set_grid_locked(not self._grid_locked)
 
     def grid_source(self) -> str | None:
-        """Why the points snap, for the sidecars: ``"toggle"`` (Snap to grid pressed),
+        """Why the points snap, for the tick index: ``"toggle"`` (Snap to grid pressed),
         ``"ctrl"`` (only Ctrl held) or ``None`` (no snapping). Thread-safety as for
         :meth:`drawings`."""
         return self._grid_source
@@ -1888,7 +1902,7 @@ class DrawingOverlay(QObject):
         if not self._visible:
             return
         self.clear()
-        self._visible = False  # the sidecars say "not drawing" from now on
+        self._visible = False  # the index says "not drawing" from now on
         self._leaving = True
         self._enable_shortcuts(False)
         self._floating = None
@@ -2318,7 +2332,7 @@ class DrawingOverlay(QObject):
         self._span.raw_end = QPointF(global_pos)
         self._span.end, self._span.end_snapped = self._snapped_global(global_pos)
         for window in self._windows:
-            window.update()  # only the screens change; the sidecars get the finished shape
+            window.update()  # only the screens change; the index gets the finished shape
 
     def _release_span(self, shift: bool) -> None:
         """The button dragging the line or arrow was released (the end is up to date)."""

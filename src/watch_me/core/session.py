@@ -21,7 +21,8 @@ tracks the editor plays, shows, transcribes and renders (see
 :mod:`watch_me.core.audio_mix`).
 
 ``frames/`` holds only the images (``<seconds>_<millis>_<screenId>.<png|jpg>``),
-``frames_info/`` the sidecar JSON of every frame (same name, ``.json``). Archiving
+``frames_info/index.jsonl`` what every tick showed (the cursor, the drawings, a
+copied text; see :mod:`watch_me.core.tick_index`). Archiving
 (:mod:`watch_me.export.archive`) turns every audio track into ``archive/audio.m4a``
 / ``archive/computer.m4a`` (with a copy of ``tracks.json``) and every screen into
 ``archive/<screenId>.mp4`` with a still ``<screenId>.jpg`` and subtitles

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import wave
 from pathlib import Path
 
@@ -11,8 +10,9 @@ import pytest
 from watch_me.capture.recorder import Recorder
 from watch_me.core.config import Config
 from watch_me.core.manifest import read_manifest, write_manifest
-from watch_me.core.naming import parse_frame_filename
+from watch_me.core.naming import frame_base, parse_frame_filename
 from watch_me.core.session import SessionPaths, new_session_id
+from watch_me.core.tick_index import INDEX_NAME, TickIndex
 from watch_me.platform import get_platform
 
 pytestmark = pytest.mark.integration
@@ -33,7 +33,7 @@ def _record(tmp_path: Path, seconds: float, **cfg_changes) -> tuple[SessionPaths
     return paths, summary, cfg
 
 
-def test_two_second_recording_produces_frames_sidecars_and_audio(tmp_path: Path):
+def test_two_second_recording_produces_frames_tick_index_and_audio(tmp_path: Path):
     paths, summary, cfg = _record(tmp_path, 2.0, capture_interval_ms=250, image_format="png")
     final = paths.final_dir
     assert final.is_dir() and not paths.work_dir.joinpath("frames").exists()
@@ -42,24 +42,31 @@ def test_two_second_recording_produces_frames_sidecars_and_audio(tmp_path: Path)
     assert screens, "at least one screen"
 
     frames = sorted(p for p in paths.frames_dir(final).iterdir() if p.suffix == ".png")
-    sidecars = {p.stem for p in paths.frames_info_dir(final).iterdir() if p.suffix == ".json"}
-    assert not any(p.suffix == ".json" for p in paths.frames_dir(final).iterdir())
+    assert all(p.suffix == ".png" for p in paths.frames_dir(final).iterdir())
+    assert [p.name for p in paths.frames_info_dir(final).iterdir()] == [INDEX_NAME]
+    ticks = TickIndex.load(paths.frames_info_dir(final))
+    assert set(ticks.screens) == screens and manifest.frames.ticks == len(ticks)
     assert paths.audio_path(final).is_file()
     assert len(frames) >= 5 * len(screens), f"expected >= 5 frames per screen, got {len(frames)}"
-    assert {p.stem for p in frames} == sidecars, "every frame has a sidecar"
+    grabbed = {
+        frame_base(state.time_ms, screen_id)
+        for state in ticks.states
+        for screen_id in ticks.screens
+        if screen_id not in state.failed
+    }
+    assert {p.stem for p in frames} == grabbed, "every grabbed screen of a tick has an image"
 
     per_screen: dict[str, list[int]] = {}
     for frame in frames:
         parsed = parse_frame_filename(frame.name)
         assert parsed is not None and parsed.screen_id in screens
         per_screen.setdefault(parsed.screen_id, []).append(parsed.time_ms)
-        sidecar_path = paths.frames_info_dir(final) / f"{frame.stem}.json"
-        sidecar = json.loads(sidecar_path.read_text(encoding="utf-8"))
-        assert sidecar["screen"] == parsed.screen_id and sidecar["time_ms"] == parsed.time_ms
-        assert sidecar["drawings"] == []  # no overlay in a headless recording
-        assert sidecar["zoom"] == []
-        assert sidecar["background"] is None  # not drawing
-        cursor = sidecar["cursor"]
+        state = ticks.exact(parsed.time_ms)
+        assert state is not None and parsed.screen_id not in state.failed
+        assert state.drawings == []  # no overlay in a headless recording
+        assert state.zoom == []
+        assert state.background is None  # not drawing
+        cursor = state.cursor
         if cursor is not None:
             assert cursor["screen"] in screens
             target = next(s for s in manifest.screens if s.id == cursor["screen"])

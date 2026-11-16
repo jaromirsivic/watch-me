@@ -18,10 +18,11 @@ from types import SimpleNamespace
 import anyio
 import pytest
 from PIL import Image as PilImage
+from tick_fixtures import IndexBuilder
 
 from watch_me.core.config import Config
 from watch_me.core.manifest import Manifest, write_manifest
-from watch_me.core.naming import frame_filename, sidecar_filename
+from watch_me.core.naming import frame_filename
 from watch_me.core.screens import RawScreen, assign_screen_ids
 from watch_me.core.session import SessionPaths
 from watch_me.core.transcript import Segment, Transcript, write_transcript
@@ -75,6 +76,7 @@ def make_recording(
     screens = assign_screen_ids(
         [RawScreen(0, 0, *SCREEN1, primary=True), RawScreen(SCREEN1[0], 0, *SCREEN2)]
     )
+    ticks = IndexBuilder(info)
     for index, t in enumerate(TIMES):
         if t < 1000:
             cursor = {"screen": "screen1", "x": CURSOR_AT[0], "y": CURSOR_AT[1]}
@@ -84,9 +86,8 @@ def make_recording(
             PilImage.new("RGB", size, COLOURS[sid][index]).save(
                 frames / frame_filename(t, sid, "png")
             )
-            (info / sidecar_filename(t, sid)).write_text(
-                json.dumps({"time_ms": t, "screen": sid, "cursor": cursor}), encoding="utf-8"
-            )
+            ticks.add(t, sid, {"time_ms": t, "screen": sid, "cursor": cursor})
+    ticks.write()
     write_manifest(
         paths.manifest_path(paths.work_dir),
         Manifest(
@@ -223,18 +224,15 @@ def make_offset_recording(root: Path) -> SessionPaths:
     frames = paths.frames_dir(paths.work_dir)
     info = paths.frames_info_dir(paths.work_dir)
     screens = assign_screen_ids([RawScreen(0, 0, *SCREEN1, primary=True)])
+    ticks = IndexBuilder(info, interval_ms=100)
     for t, colour, (cx, cy) in zip(OFFSET_TIMES, OFFSET_COLOURS, OFFSET_CURSORS, strict=True):
         PilImage.new("RGB", SCREEN1, colour).save(frames / frame_filename(t, "screen1", "png"))
-        (info / sidecar_filename(t, "screen1")).write_text(
-            json.dumps(
-                {
-                    "time_ms": t,
-                    "screen": "screen1",
-                    "cursor": {"screen": "screen1", "x": cx, "y": cy},
-                }
-            ),
-            encoding="utf-8",
+        ticks.add(
+            t,
+            "screen1",
+            {"time_ms": t, "screen": "screen1", "cursor": {"screen": "screen1", "x": cx, "y": cy}},
         )
+    ticks.write()
     write_manifest(
         paths.manifest_path(paths.work_dir),
         Manifest(

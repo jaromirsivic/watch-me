@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
-import json
 import os
 from datetime import datetime
 from pathlib import Path
+
+from tick_fixtures import IndexBuilder
 
 from watch_me.core.archive_state import (
     MAX_AUTOMATIC_ATTEMPTS,
@@ -14,9 +15,10 @@ from watch_me.core.archive_state import (
     request_archive,
     retry_archive,
 )
+from watch_me.core.naming import frame_filename
 from watch_me.core.session import SessionPaths, SessionState, Status, write_state
 from watch_me.host import retention
-from watch_me.host.runner import FrameRef
+from watch_me.host.runner import FrameIndex, FrameRef
 
 
 def _make_final(root: Path, session_id: str, size: int = 10) -> SessionPaths:
@@ -143,10 +145,20 @@ def test_cancelled_archive_is_never_due_nor_retried(tmp_path: Path):
     assert state.cancelled and state.failed_attempts == 1 and state.reason == "age"
 
 
+def _frame_ref(folder: Path, time_ms: int, shown: dict) -> FrameRef:
+    """The screen1 frame at ``time_ms`` of a recording whose one tick showed ``shown``."""
+    frames, info = folder / "frames", folder / "frames_info"
+    frames.mkdir(parents=True, exist_ok=True)
+    (frames / frame_filename(time_ms, "screen1", "png")).write_bytes(b"x")
+    index = IndexBuilder(info)
+    index.add(time_ms, "screen1", shown)
+    index.write()
+    ref = FrameIndex(frames, info).at("screen1", time_ms)
+    assert ref is not None
+    return ref
+
+
 def test_frame_ref_exposes_drawings(tmp_path: Path):
-    image = tmp_path / "1_000_screen1.png"
-    sidecar = tmp_path / "1_000_screen1.json"
-    image.write_bytes(b"x")
     drawing = {
         "tool": "rectangle",
         "color": "#FF0000",
@@ -155,26 +167,16 @@ def test_frame_ref_exposes_drawings(tmp_path: Path):
         "from": {"screen": "screen1", "x": 10, "y": 20},
         "to": {"screen": "screen1", "x": 110, "y": 220},
     }
-    sidecar.write_text(
-        json.dumps({"time_ms": 1000, "screen": "screen1", "cursor": None, "drawings": [drawing]}),
-        encoding="utf-8",
-    )
-    data = FrameRef("screen1", 1000, image, sidecar).to_dict()
+    data = _frame_ref(tmp_path, 1000, {"cursor": None, "drawings": [drawing]}).to_dict()
     assert data["drawings"] == [drawing] and data["cursor"] is None
-    # Sidecars written before drawings existed still work.
-    sidecar.write_text(json.dumps({"time_ms": 1000, "screen": "screen1"}), encoding="utf-8")
-    assert FrameRef("screen1", 1000, image, sidecar).to_dict()["drawings"] == []
-    assert FrameRef("screen1", 1000, image, sidecar).to_dict()["zoom"] == []
+    assert data["image"] == str(tmp_path / "frames" / "1_000_screen1.png")
+    # A tick that shows nothing has no drawings and no zoom.
+    assert _frame_ref(tmp_path, 1000, {}).to_dict()["drawings"] == []
+    assert _frame_ref(tmp_path, 1000, {}).to_dict()["zoom"] == []
     zoom = {"screen": "screen1", "factor": 2.0, "x": 100, "y": 50, "width": 400, "height": 300}
-    sidecar.write_text(
-        json.dumps({"time_ms": 1000, "screen": "screen1", "drawings": [], "zoom": [zoom]}),
-        encoding="utf-8",
-    )
-    assert FrameRef("screen1", 1000, image, sidecar).to_dict()["zoom"] == [zoom]
-    assert FrameRef("screen1", 1000, image, sidecar).to_dict()["drawing_now"] is None
+    data = _frame_ref(tmp_path, 1000, {"drawings": [], "zoom": [zoom]}).to_dict()
+    assert data["zoom"] == [zoom]
+    assert data["drawing_now"] is None
     now = {"tool": "brush", "color": "#FF0000", "screen": "screen1", "started_ms": 900}
-    sidecar.write_text(
-        json.dumps({"time_ms": 1000, "screen": "screen1", "drawings": [], "drawing_now": now}),
-        encoding="utf-8",
-    )
-    assert FrameRef("screen1", 1000, image, sidecar).to_dict()["drawing_now"] == now
+    data = _frame_ref(tmp_path, 1000, {"drawings": [], "drawing_now": now}).to_dict()
+    assert data["drawing_now"] == now

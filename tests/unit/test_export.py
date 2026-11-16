@@ -6,11 +6,13 @@ from pathlib import Path
 
 import pytest
 from PIL import Image as PilImage
+from tick_fixtures import IndexBuilder
 
 from watch_me.core.config import Config
 from watch_me.core.cursor import CursorPosition
 from watch_me.core.naming import FrameName
 from watch_me.core.session import SessionPaths
+from watch_me.core.tick_index import TickIndex
 from watch_me.core.transcript import Segment, Transcript
 from watch_me.export import ExportError, ExportRequest, ExportResult, ffmpeg_export, plan, srt
 from watch_me.export.cursor import CURSOR_HOTSPOT, CURSOR_SIZE, cursor_image, write_cursor_png
@@ -30,7 +32,6 @@ def test_plan_start_between_frames():
     planned = plan.plan_frames(FRAMES, 250, 1750)
     assert _shown(planned) == [(0, 250, 250), (500, 500, 500), (1000, 1000, 500), (1500, 1500, 250)]
     assert planned[0].filename == "0_000_screen1.png"
-    assert planned[0].sidecar == "0_000_screen1.json"
     assert sum(p.duration_ms for p in planned) == 1500
 
 
@@ -169,17 +170,41 @@ def test_cursor_expressions_balanced_tree():
     assert "," in x_expr and "'" not in x_expr
 
 
-def test_sidecar_cursor_reader(tmp_path: Path):
-    (tmp_path / "0_000_screen1.json").write_text(
-        '{"cursor": {"screen": "screen1", "x": 3, "y": 4}}', encoding="utf-8"
-    )
-    (tmp_path / "0_500_screen1.json").write_text('{"cursor": null}', encoding="utf-8")
-    (tmp_path / "1_000_screen1.json").write_text("not json", encoding="utf-8")
-    read = plan.sidecar_cursor_reader(tmp_path)
+def _cursor_ticks(info: Path) -> TickIndex:
+    """Ticks at 0/250/500/1000 ms; the cursor is outside every screen at 500 ms."""
+    index = IndexBuilder(info, interval_ms=250)
+    index.add(0, "screen1", {"cursor": {"screen": "screen1", "x": 3, "y": 4}})
+    index.add(250, "screen1", {"cursor": {"screen": "screen1", "x": 5, "y": 6}})
+    index.add(500, "screen1", {"cursor": None})
+    index.add(1000, "screen1", {"cursor": {"screen": "screen1", "x": 7, "y": 8}})
+    index.write()
+    return TickIndex.load(info)
+
+
+def test_tick_cursor_reader(tmp_path: Path):
+    read = plan.tick_cursor_reader(_cursor_ticks(tmp_path))
     assert read(plan.PlannedFrame("0_000_screen1.png", 0, 0, 1)) == CursorPosition("screen1", 3, 4)
+    assert read(plan.PlannedFrame("", 250, 250, 1)) == CursorPosition("screen1", 5, 6)
     assert read(plan.PlannedFrame("0_500_screen1.png", 500, 500, 1)) is None
-    assert read(plan.PlannedFrame("1_000_screen1.png", 1000, 1000, 1)) is None
-    assert read(plan.PlannedFrame("9_000_screen1.png", 9000, 9000, 1)) is None
+    # Between two ticks and after the last one: the tick valid at that time.
+    assert read(plan.PlannedFrame("", 700, 700, 1)) is None
+    assert read(plan.PlannedFrame("", 9000, 9000, 1)) == CursorPosition("screen1", 7, 8)
+
+
+def test_cursor_moments_follow_the_ticks_not_the_images(tmp_path: Path):
+    ticks = _cursor_ticks(tmp_path)
+    moments = plan.cursor_moments(ticks, 300, 1200)
+    # The moment at start_ms is the tick valid then (250); every later tick in the range
+    # has its own moment, also where no image was stored.
+    assert _shown(moments) == [(250, 300, 200), (500, 500, 500), (1000, 1000, 200)]
+    read = plan.tick_cursor_reader(ticks)
+    assert [read(m) for m in moments] == [
+        CursorPosition("screen1", 5, 6),
+        None,
+        CursorPosition("screen1", 7, 8),
+    ]
+    assert _shown(plan.cursor_moments(ticks, 0, 300)) == [(0, 0, 250), (250, 250, 50)]
+    assert plan.cursor_moments(TickIndex({}, []), 0, 1000) == []
 
 
 # cursor image -----------------------------------------------------------------

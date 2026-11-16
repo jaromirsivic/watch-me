@@ -384,7 +384,7 @@ uv run watch-me run            # opens the window and waits; press Record, talk,
 
 Recordings land in the recording folder as `<YYYYMMDD-HHMMSS>/` with `manifest.json`,
 `audio/audio.wav`, `transcript.txt`, `transcript.json`, `frames/` (images) and
-`frames_info/` (one sidecar JSON per frame).
+`frames_info/index.jsonl` (the tick index: one line per capture interval with the cursor, the drawings and copied text).
 
 Developer checks:
 

@@ -8,7 +8,6 @@ the cursor pointer. The ffmpeg command itself is built in
 
 from __future__ import annotations
 
-import json
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -16,6 +15,7 @@ from pathlib import Path
 from watch_me.core.config import EXPORT_FPS
 from watch_me.core.cursor import CursorPosition, cursor_from_json
 from watch_me.core.naming import FrameName
+from watch_me.core.tick_index import TickIndex
 
 from . import ExportError
 
@@ -41,10 +41,6 @@ class PlannedFrame:
     time_ms: int  # capture time of the source frame
     start_ms: int  # when it appears on the recording timeline (>= time_ms)
     duration_ms: int
-
-    @property
-    def sidecar(self) -> str:
-        return f"{Path(self.filename).stem}.json"
 
 
 CursorReader = Callable[[PlannedFrame], CursorPosition | None]
@@ -106,14 +102,31 @@ def concat_list_text(frames_dir: Path, planned: list[PlannedFrame]) -> str:
     return "\n".join(lines) + "\n"
 
 
-def sidecar_cursor_reader(info_dir: Path) -> CursorReader:
-    """Reader of the cursor stored in a frame's sidecar JSON (``None`` when absent)."""
+def cursor_moments(ticks: TickIndex, start_ms: int, end_ms: int) -> list[PlannedFrame]:
+    """The moments of ``[start_ms, end_ms)`` at which the cursor may be somewhere else:
+    the tick valid at ``start_ms`` and every tick after it. They come from the tick
+    index, not from the images, so the pointer moves also where no image follows."""
+    first = ticks.at(start_ms)
+    if first is None:
+        return []
+    chosen = [(first.time_ms, start_ms)]
+    chosen.extend((t, t) for t in ticks.times if start_ms < t < end_ms)
+    moments: list[PlannedFrame] = []
+    for position, (time_ms, shown_at) in enumerate(chosen):
+        next_at = chosen[position + 1][1] if position + 1 < len(chosen) else end_ms
+        moments.append(PlannedFrame("", time_ms, shown_at, next_at - shown_at))
+    return moments
+
+
+def tick_cursor_reader(ticks: TickIndex) -> CursorReader:
+    """Reader of the cursor at the tick a moment was captured at (``None`` when the
+    cursor was outside every screen)."""
 
     def read(frame: PlannedFrame) -> CursorPosition | None:
+        state = ticks.exact(frame.time_ms) or ticks.at(frame.time_ms)
         try:
-            data = json.loads((info_dir / frame.sidecar).read_text(encoding="utf-8"))
-            return cursor_from_json(data.get("cursor"))
-        except (OSError, ValueError, KeyError, TypeError, AttributeError):
+            return cursor_from_json(state.cursor) if state is not None else None
+        except (ValueError, KeyError, TypeError, AttributeError):
             return None
 
     return read
@@ -141,7 +154,8 @@ def cursor_keyframes(
     hotspot: tuple[int, int] = (0, 0),
     fps: int = EXPORT_FPS,
 ) -> list[CursorKeyframe]:
-    """Where the pointer image sits from each planned frame on (output frame indexes).
+    """Where the pointer image sits from each moment on (output frame indexes;
+    ``planned``: :func:`cursor_moments`).
 
     The pointer is placed so that its hotspot is on the recorded cursor position, or
     parked at :data:`CURSOR_PARKED` (outside the picture) when the frame has no cursor
@@ -200,7 +214,8 @@ __all__ = [
     "concat_list_text",
     "cursor_expressions",
     "cursor_keyframes",
+    "cursor_moments",
     "output_frame_index",
     "plan_frames",
-    "sidecar_cursor_reader",
+    "tick_cursor_reader",
 ]

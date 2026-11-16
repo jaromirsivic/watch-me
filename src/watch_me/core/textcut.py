@@ -1,6 +1,6 @@
 """Cutting long texts the same way everywhere: at most ``limit`` characters, then ``...``.
 
-Used by the clipboard (sidecars) and by the content of elements under the mouse
+Used by the clipboard (tick index) and by the content of elements under the mouse
 (``input/mouse.jsonl``), on every operating system.
 """
 

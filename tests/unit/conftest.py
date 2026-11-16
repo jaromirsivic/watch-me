@@ -20,6 +20,25 @@ def _garbage_dies_on_the_main_thread():
 
 
 @pytest.fixture(autouse=True)
+def _slow_stroke_clock(monkeypatch):
+    """Brush strokes are thinned to one point in 20 ms (``watch_me.core.stroke``); a
+    test draws a whole stroke within a millisecond. Here 25 ms pass between two
+    positions, so every point a test draws is kept. Tests of the thinning patch
+    ``_stroke_clock_ms`` themselves."""
+    try:
+        import watch_me.ui.overlay as overlay
+    except ImportError:  # pragma: no cover - Qt missing
+        return
+    now = [0.0]
+
+    def clock() -> float:
+        now[0] += 25.0
+        return now[0]
+
+    monkeypatch.setattr(overlay, "_stroke_clock_ms", clock)
+
+
+@pytest.fixture(autouse=True)
 def _no_automatic_archiving(monkeypatch):
     """Test recordings are dated long ago: without this, every editor a test opens
     would queue them for archiving and start real archive workers. Tests of the

@@ -19,8 +19,11 @@ from .session import (
     INPUT_DIR_NAME,
     MOUSE_FILE_NAME,
 )
+from .tick_index import INDEX_NAME
 
-SCHEMA_VERSION = 2  # 2: audio/audio.wav, frames/ images only, sidecars in frames_info/
+# 2: audio/audio.wav, frames/ images only, sidecars in frames_info/
+# 3: frames_info/index.jsonl (one line per tick) instead of a sidecar per image
+SCHEMA_VERSION = 3
 
 AUDIO_FILE = f"{AUDIO_DIR_NAME}/{AUDIO_FILE_NAME}"
 COMPUTER_AUDIO_FILE = f"{AUDIO_DIR_NAME}/{COMPUTER_AUDIO_FILE_NAME}"
@@ -72,11 +75,13 @@ class AudioInfo:
 class FramesInfo:
     dir: str = FRAMES_DIR_NAME
     info_dir: str = FRAMES_INFO_DIR_NAME
-    count: int = 0
+    count: int = 0  # images written
+    ticks: int = 0  # ticks stored in the index
     dropped_ticks: int = 0
+    info: str = INDEX_NAME  # the file in info_dir that holds every tick
     naming: str = (
-        "<seconds>_<millis>_<screenId>.<png|jpg> in dir, its sidecar "
-        "<seconds>_<millis>_<screenId>.json in info_dir"
+        "<seconds>_<millis>_<screenId>.<png|jpg> in dir; what each tick showed (cursor, "
+        "drawings, clipboard) is one line of info_dir/index.jsonl"
     )
     # Grabs of one screen that failed (lock screen, UAC prompt): no frame of that
     # screen exists for that tick; the frame before it is the latest one.
@@ -86,7 +91,9 @@ class FramesInfo:
         return {
             "dir": self.dir,
             "info_dir": self.info_dir,
+            "info": self.info,
             "count": self.count,
+            "ticks": self.ticks,
             "dropped_ticks": self.dropped_ticks,
             "failed_grabs": self.failed_grabs,
             "naming": self.naming,
@@ -240,8 +247,9 @@ class Manifest:
             "image_format": self.image_format,
             "jpeg_quality": self.jpeg_quality,
             "screens": [s.to_manifest() for s in self.screens],
-            "cursor": "each frame sidecar JSON holds {screen, x, y}: the screen the cursor was on "
-            "and its position in pixels of that screen's image, origin top-left",
+            "cursor": "the tick index (frames.info) holds {screen, x, y} for every tick: the "
+            "screen the cursor was on and its position in pixels of that screen's image, "
+            "origin top-left",
             "audio": self.audio.to_dict(),
             "computer_audio": self.computer_audio.to_dict() if self.computer_audio else None,
             "audio_note": "audio is the microphone; computer_audio (when recorded) is what "
@@ -253,7 +261,7 @@ class Manifest:
             "mouse_note": "input/mouse.jsonl (when mouse is not null): clicks, drags, wheel "
             "and two-finger touchpad gestures with the window, the element under the mouse "
             "and its content (at most max_content_chars, never password fields); times on "
-            "the recording timeline, screen/x/y like the cursor in the frame sidecars",
+            "the recording timeline, screen/x/y like the cursor in the tick index",
             "live_transcription": self.live_transcription,
             "keypoints": self.keypoints_to_dict(),
             "keypoints_note": "moments the user marked as important while recording "
@@ -293,6 +301,7 @@ class Manifest:
                 dir=frames.get("dir", FRAMES_DIR_NAME),
                 info_dir=frames.get("info_dir", FRAMES_INFO_DIR_NAME),
                 count=int(frames.get("count", 0)),
+                ticks=int(frames.get("ticks", 0)),
                 dropped_ticks=int(frames.get("dropped_ticks", 0)),
                 failed_grabs=int(frames.get("failed_grabs", 0)),
             ),

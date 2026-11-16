@@ -1,7 +1,8 @@
-"""File naming for frames and their sidecar JSON files.
+"""File naming for frames.
 
 A frame is named ``<seconds>_<millis>_<screenId>.<ext>`` where ``millis`` has three
-digits, for example ``0_250_screen1.png``; its sidecar is ``0_250_screen1.json``.
+digits, for example ``0_250_screen1.png``. What the screens showed at that time is not
+in a file of its own: it is a line of the tick index (:mod:`watch_me.core.tick_index`).
 """
 
 from __future__ import annotations
@@ -11,11 +12,13 @@ from dataclasses import dataclass
 
 EXTENSION_BY_FORMAT = {"png": "png", "jpeg": "jpg"}
 FORMAT_BY_EXTENSION = {"png": "png", "jpg": "jpeg", "jpeg": "jpeg"}
-SIDECAR_EXTENSION = "json"
+# The "extension" of a frame that is known from the tick index only: its image is gone
+# (an archived recording).
+NO_IMAGE_EXTENSION = ""
 SCREEN_ID_PREFIX = "screen"
 
 _FRAME_RE = re.compile(
-    rf"^(?P<seconds>\d+)_(?P<millis>\d{{3}})_(?P<screen>{SCREEN_ID_PREFIX}\d+)\.(?P<ext>png|jpg|jpeg|json)$",
+    rf"^(?P<seconds>\d+)_(?P<millis>\d{{3}})_(?P<screen>{SCREEN_ID_PREFIX}\d+)\.(?P<ext>png|jpg|jpeg)$",
     re.IGNORECASE,
 )
 
@@ -27,8 +30,9 @@ class FrameName:
     extension: str
 
     @property
-    def is_sidecar(self) -> bool:
-        return self.extension.lower() == SIDECAR_EXTENSION
+    def without_image(self) -> bool:
+        """Known from the tick index only: there is no image file for it."""
+        return self.extension == NO_IMAGE_EXTENSION
 
     @property
     def base(self) -> str:
@@ -61,12 +65,8 @@ def frame_filename(time_ms: int, screen: str, image_format: str) -> str:
     return f"{frame_base(time_ms, screen)}.{ext}"
 
 
-def sidecar_filename(time_ms: int, screen: str) -> str:
-    return f"{frame_base(time_ms, screen)}.{SIDECAR_EXTENSION}"
-
-
 def parse_frame_filename(name: str) -> FrameName | None:
-    """Parse a frame or sidecar filename; returns ``None`` for other files."""
+    """Parse the filename of a frame image; returns ``None`` for other files."""
     match = _FRAME_RE.match(name)
     if not match:
         return None
@@ -78,11 +78,11 @@ def parse_frame_filename(name: str) -> FrameName | None:
 
 __all__ = [
     "EXTENSION_BY_FORMAT",
+    "NO_IMAGE_EXTENSION",
     "FORMAT_BY_EXTENSION",
     "FrameName",
     "frame_base",
     "frame_filename",
     "parse_frame_filename",
     "screen_id",
-    "sidecar_filename",
 ]

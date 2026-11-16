@@ -435,7 +435,7 @@ def test_leave_clears_at_once_then_flashes_green_and_hides(overlay, qtbot):
     drag(window, [(100, 100), (160, 160)])
     overlay.set_sketch(True)
     overlay.leave()
-    # At once: shapes gone, back on the screens, sidecars say "not drawing".
+    # At once: shapes gone, back on the screens, the index says "not drawing".
     assert overlay.shapes() == [] and not overlay.sketch and overlay.background() is None
     assert overlay.leaving and window.isVisible()
     # The windows swallow the mouse meanwhile: nothing is drawn.
@@ -552,7 +552,7 @@ def test_shapes_carry_id_and_draw_times_from_the_clock(overlay):
     }
     now[0] = 1400
     _mouse(window, QEvent.Type.MouseMove, QPoint(50, 40), True)
-    assert overlay.drawings() == []  # still dragging: no geometry in the sidecars yet
+    assert overlay.drawings() == []  # still dragging: no geometry in the index yet
     now[0] = 1800
     _mouse(window, QEvent.Type.MouseButtonRelease, QPoint(60, 50), False)
     assert overlay.drawing_now() is None
@@ -767,7 +767,7 @@ def test_drawing_while_zoomed_uses_canvas_coordinates(overlay):
     _first, second = overlay.shapes()
     assert second.points[0] == QPointF(20, 30) and second.points[-1] == QPointF(40, 40)
 
-    # The sidecar data describes the zoomed image: shapes in view pixels, plus the zoom.
+    # The data for the index describes the zoomed image: shapes in view pixels, plus the zoom.
     drawings = overlay.drawings()
     assert drawings[0]["from"] == {"screen": "screen1", "x": round(40 * dpr), "y": round(20 * dpr)}
     assert drawings[1]["from"] == {"screen": "screen1", "x": 0, "y": 0}
@@ -781,7 +781,7 @@ def test_drawing_while_zoomed_uses_canvas_coordinates(overlay):
             "height": round(window.height() / 2 * dpr),
         }
     ]
-    # Shapes scrolled out of view are left out of the sidecar.
+    # Shapes scrolled out of view are left out of the index.
     window.set_zoom(MAX_ZOOM, QPointF(window.width(), window.height()))
     assert overlay.drawings() == []
     window.reset_zoom()

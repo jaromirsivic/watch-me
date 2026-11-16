@@ -257,7 +257,7 @@ def test_grid_size_comes_from_the_setting(overlay, keyboard):
     assert _points(shape) == [(32, 32), (192, 128)] and shape.grid == 32
 
 
-# -- the grid on the sketch canvas and in the sidecars -----------------------------------
+# -- the grid on the sketch canvas and in the tick index ---------------------------------
 
 
 def test_grid_is_painted_on_the_sketch_canvas_only_while_ctrl_is_held(overlay, keyboard):
@@ -284,7 +284,7 @@ def test_ctrl_key_events_show_and_hide_the_grid(overlay):
     assert not overlay.ctrl_held
 
 
-def test_grid_for_the_sidecars(overlay, keyboard):
+def test_grid_for_the_tick_index(overlay, keyboard):
     overlay.set_screens(_screens())
     assert overlay.grid() is None
     keyboard.ctrl = True
