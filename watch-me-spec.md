@@ -231,6 +231,8 @@ Složka `agent/` obsahuje jen tyto odvozené soubory. Dají se kdykoli smazat, p
 
 Další příkazy: `status`, `transcribe`, `export`, `config`, `devices`, `screens`, `doctor`, `setup`, `mcp`. MCP server nabízí tytéž funkce jako nástroje `watch_me_*`.
 
+**Přepis na disku a příkaz `transcribe`.** `transcript.json` a `transcript.txt` se zapisují přes dočasný soubor a přejmenování, s vynuceným zápisem na disk; nejdřív JSON, pak text. Během přepisu je segment v paměti hned (editor ho ukáže jako titulek) a na disk se ukládá nejvýš jednou za 5 s a vždy na konci, při zastavení pracovního procesu a při zavření okna; ruční úprava titulku se zapisuje okamžitě. Nečitelný `transcript.json` se nepřepisuje: před prvním novým zápisem se přejmenuje na `transcript.damaged.json`. `watch-me transcribe <id>` neúplný přepis dokončí (naváže na `transcribed_ms`, ukládá průběžně, běží se sníženou prioritou), hotový přepis nechá být (`already_complete`) a s `--again` ho udělá znovu od nuly; předchozí přepis přitom zůstane jako `transcript.before-again.json` a při otevřeném editoru příkaz skončí chybou `EDITOR_OPEN`. Jednu nahrávku přepisuje vždy jen jeden proces: editor, archivační proces i příkaz drží po dobu přepisu zámek `.work/transcribe-<id>.lock`. Příkaz při obsazeném zámku skončí chybou `TRANSCRIPTION_BUSY`, editor počká a pak si přepis načte z disku, archivační fronta nahrávku odloží. Relaci, která se právě nahrává nebo ukládá, příkaz odmítne (`SESSION_ACTIVE`).
+
 ## 10. Poruchy a obnova
 
 | Situace | Chování |

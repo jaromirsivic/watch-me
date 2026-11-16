@@ -50,12 +50,15 @@ from PySide6.QtCore import QObject, QProcess, QTimer, Signal
 from watch_me.core.archive_state import read_archive_state, record_archive_failure
 from watch_me.core.config import Config, config_path
 from watch_me.core.session import SessionPaths
+from watch_me.host.transcription_lock import BUSY as TRANSCRIPTION_BUSY
+from watch_me.host.transcription_lock import transcription_holder
 from watch_me.platform.process import python_command
 
-from .transcription import _error_message
+from .transcription import _error_code, _error_message
 
 log = logging.getLogger(__name__)
 
+BUSY_RETRY_MS = 5000  # a queue of recordings transcribed elsewhere is tried again
 STOP_WAIT_MS = 15_000  # a stopped worker cancels FFmpeg and removes partial files
 STDERR_TAIL_LINES = 12
 
@@ -100,6 +103,12 @@ class ArchiveManager(QObject):
         self._kill_timer = QTimer(self)
         self._kill_timer.setSingleShot(True)
         self._kill_timer.timeout.connect(self._kill_cancelled)
+        # Every queued recording is being transcribed by another process (a
+        # ``watch-me transcribe`` command): the queue is looked at again later.
+        self._busy_timer = QTimer(self)
+        self._busy_timer.setSingleShot(True)
+        self._busy_timer.setInterval(BUSY_RETRY_MS)
+        self._busy_timer.timeout.connect(self._start_next)
 
     # State ------------------------------------------------------------------
 
@@ -238,10 +247,23 @@ class ArchiveManager(QObject):
             "--stop-on-eof",
         )
 
+    def _take_free(self) -> SessionPaths | None:
+        """The first queued recording nobody else transcribes right now; those that
+        are being transcribed go to the end of the queue (``None``: all of them are)."""
+        for _ in range(len(self._queue)):
+            paths = self._queue.popleft()
+            if transcription_holder(paths) is None:
+                return paths
+            self._queue.append(paths)
+        return None
+
     def _start_next(self) -> None:
         if self._process is not None or self._stopping or not self._queue:
             return
-        paths = self._queue.popleft()
+        paths = self._take_free()
+        if paths is None:
+            self._busy_timer.start()
+            return
         args = self.command(paths)
         process = QProcess(self)
         process.setProcessChannelMode(QProcess.ProcessChannelMode.SeparateChannels)
@@ -265,6 +287,7 @@ class ArchiveManager(QObject):
         self._stopping = True
         self._queue.clear()
         self._kill_timer.stop()
+        self._busy_timer.stop()
         process = self._process
         if process is None or process.state() == QProcess.ProcessState.NotRunning:
             return
@@ -380,6 +403,11 @@ class ArchiveManager(QObject):
         if done is not None and exit_code == 0 and status == QProcess.ExitStatus.NormalExit:
             log.info("archiving of %s finished: %s", session_id, done)
             self.finished.emit(session_id, done)
+        elif _error_code(" | ".join(self._stderr)) == TRANSCRIPTION_BUSY:
+            # Another process took the recording's transcription between our look at
+            # the lock and the worker's: no failure, it waits in the queue again.
+            log.info("archiving of %s postponed: it is being transcribed elsewhere", session_id)
+            self._queue.append(paths)
         else:
             message = _error_message(" | ".join(self._stderr) or f"exit code {exit_code}")
             log.warning("archiving of %s failed: %s", session_id, message)

@@ -31,13 +31,12 @@ from pathlib import Path
 from typing import Any
 
 from watch_me.core.config import Config, config_path
-from watch_me.core.fileio import atomic_write_text
 from watch_me.core.session import SessionPaths
 from watch_me.core.transcript import (
     Segment,
     Transcript,
     merge_segments,
-    transcript_to_text,
+    write_transcript,
 )
 from watch_me.platform.process import python_command
 from watch_me.transcribe.live_worker import read_resume_state
@@ -340,10 +339,10 @@ class LiveTranscriber:
         updated.backend = updated.backend or self.config.whisper_backend
         base = self.paths.work_dir
         try:
-            atomic_write_text(self.paths.transcript_txt_path(base), transcript_to_text(updated))
-            atomic_write_text(
+            write_transcript(
+                self.paths.transcript_txt_path(base),
                 self.paths.transcript_json_path(base),
-                json.dumps(updated.to_dict(), indent=2, ensure_ascii=False) + "\n",
+                updated,
             )
         except OSError as exc:
             log.warning("live transcript not written: %s", exc)

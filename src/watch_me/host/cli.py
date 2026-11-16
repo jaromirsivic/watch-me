@@ -423,12 +423,35 @@ def _require_audio(paths: Any, base: Path) -> None:
         raise CliError("NO_AUDIO", f"no audio file {paths.audio_path(base)}")
 
 
+# How the ``transcribe`` command runs: slightly below normal priority (the agent waits
+# for it, but so does whatever the user is doing meanwhile), and a line of progress on
+# stderr at most this often.
+TRANSCRIBE_PRIORITY_MODE = "faster"
+TRANSCRIBE_LOG_INTERVAL_S = 5.0
+BEFORE_AGAIN_NAME = "transcript.before-again.json"
+
+
 def cmd_transcribe(args: argparse.Namespace) -> dict[str, Any]:
-    """Re-run transcription for an existing recording directory."""
-    from watch_me.core.manifest import read_manifest, write_manifest
-    from watch_me.core.session import now_iso
-    from watch_me.host.runner import SessionError, resolve_session
-    from watch_me.transcribe.pipeline import transcribe_recording
+    """Complete the transcription of an existing recording.
+
+    An incomplete transcript is continued from where it ends (``transcribed_ms``); the
+    segments are stored as they come, so a run that is killed (the time limit of the
+    host's tool) loses a few seconds and the next run goes on from there. A complete
+    transcript is left alone - it may hold the user's corrections - unless ``--again``
+    asks for a new one from the start; the previous one is then kept as
+    :data:`BEFORE_AGAIN_NAME`.
+
+    One process at a time transcribes a recording (``TRANSCRIPTION_BUSY`` otherwise;
+    see :mod:`watch_me.host.transcription_lock`).
+    """
+    from watch_me.core.session import Status
+    from watch_me.host.runner import SessionError, active_session, resolve_session
+    from watch_me.host.transcription_lock import (
+        BUSY,
+        busy_message,
+        transcription_holder,
+        transcription_lock,
+    )
 
     cfg = _load(args)
     try:
@@ -437,26 +460,143 @@ def cmd_transcribe(args: argparse.Namespace) -> dict[str, Any]:
         raise CliError(exc.code, str(exc)) from exc
     base = paths.current_dir
     _require_audio(paths, base)
+    active = active_session(cfg)
+    if active is not None and active[0].session_id == paths.session_id:
+        if active[1].status in (Status.RECORDING, Status.PROCESSING):
+            raise CliError(
+                "SESSION_ACTIVE",
+                f"The session {paths.session_id} is still {active[1].status.value}: its "
+                "window makes the transcript. Wait for it (`watch-me wait`).",
+            )
+    lock = transcription_lock(paths)
+    if not lock.acquire():
+        raise CliError(BUSY, busy_message(paths, transcription_holder(paths)))
+    try:
+        return _transcribe_locked(cfg, paths, base, again=args.again)
+    finally:
+        lock.release()
 
-    def progress(fraction: float, text: str) -> None:
-        log.info("%3d%% %s", int(fraction * 100), text)
 
+def _transcribe_locked(cfg: Any, paths: SessionPaths, base: Path, *, again: bool) -> dict[str, Any]:
+    """The work of ``transcribe`` once the recording's transcription lock is ours."""
+    import shutil
+
+    from watch_me.core.manifest import TranscriptInfo, read_manifest, write_manifest
+    from watch_me.core.session import now_iso
+    from watch_me.core.timeline import format_timestamp
+    from watch_me.core.transcript import Segment
+    from watch_me.core.transcript_store import TranscriptStore
+    from watch_me.host.editor_launcher import editor_running_pid
+    from watch_me.platform.process import lower_own_priority
+    from watch_me.transcribe.pipeline import stream_transcription
+
+    txt_path, json_path = paths.transcript_txt_path(base), paths.transcript_json_path(base)
+    store = TranscriptStore.load(txt_path, json_path)
+    result: dict[str, Any] = {
+        "recording_dir": str(base),
+        "transcript_txt": str(txt_path),
+        "transcript_json": str(json_path),
+    }
+    stored = store.transcript
+    if again:
+        editor = editor_running_pid(cfg)
+        if editor is not None:
+            raise CliError(
+                "EDITOR_OPEN",
+                "The Watch Me Editor is open"
+                + (f" (process {editor})" if editor else "")
+                + ": the user may be correcting this transcript there. Close the editor "
+                "first, or use its Transcribe again.",
+            )
+        if stored is not None and stored.segments:
+            backup = json_path.with_name(BEFORE_AGAIN_NAME)
+            shutil.copyfile(json_path, backup)
+            result["previous_transcript"] = str(backup)
+        store.reset()
+        stored = store.transcript
+    elif stored is not None and stored.complete:
+        result.update(
+            complete=True,
+            already_complete=True,
+            language=stored.language,
+            segments=len(stored.segments),
+            seconds=0.0,
+        )
+        return result
+
+    start_ms = 0
+    if stored is not None:
+        start_ms = stored.transcribed_ms
+        if start_ms is None:
+            start_ms = max((s.end_ms for s in stored.segments), default=0)
+    language = stored.language if stored is not None and start_ms > 0 else None
+    log.info("priority: %s", lower_own_priority(TRANSCRIBE_PRIORITY_MODE))
+    log.info("transcribing %s from %s", paths.session_id, format_timestamp(start_ms))
     started = time.monotonic()
-    result = transcribe_recording(paths, cfg, base_dir=base, progress=progress)
+    logged = [started]
+
+    def on_event(event: dict[str, Any]) -> None:
+        kind = event.get("event")
+        if kind == "segment":
+            segment = Segment.from_dict(event)
+            store.add_segments([segment], segment.end_ms)
+        elif kind != "progress":
+            return
+        store.save_if_due()
+        now = time.monotonic()
+        if kind == "progress" and now - logged[0] >= TRANSCRIBE_LOG_INTERVAL_S:
+            logged[0] = now
+            fraction = max(0.0, min(1.0, float(event.get("fraction", 0.0))))
+            reached = format_timestamp(int(event.get("transcribed_ms", 0)))
+            eta = ""
+            if fraction >= 0.02:
+                left = (now - started) * (1.0 - fraction) / fraction
+                eta = f", about {int(left // 60)} min {int(left % 60)} s left"
+            log.info(
+                "%3d%% of the remaining audio; segments reach %s%s",
+                int(fraction * 100),
+                reached,
+                eta,
+            )
+
+    try:
+        done = stream_transcription(
+            paths, cfg, base_dir=base, start_ms=start_ms, emit=on_event, language=language
+        )
+    finally:
+        # Whatever ended the run (an error, Ctrl+C): what whisper produced is stored
+        # and the next run continues from there.
+        try:
+            store.save()
+        except OSError as exc:
+            log.warning("cannot store the transcript of %s: %s", paths.session_id, exc)
+    transcript = store.finish(done.get("language"), done.get("model"), done.get("backend"))
+    seconds = round(time.monotonic() - started, 1)
     manifest_path = paths.manifest_path(base)
     if manifest_path.exists():
         manifest = read_manifest(manifest_path)
-        manifest.transcript = result.info
+        manifest.transcript = TranscriptInfo(
+            txt=txt_path.name,
+            json_file=json_path.name,
+            language=transcript.language,
+            model=transcript.model,
+            backend=transcript.backend,
+            segments=len(transcript.segments),
+            duration_s=seconds,
+        )
         manifest.finished_at = manifest.finished_at or now_iso()
         write_manifest(manifest_path, manifest)
-    return {
-        "recording_dir": str(base),
-        "transcript_txt": str(paths.transcript_txt_path(base)),
-        "transcript_json": str(paths.transcript_json_path(base)),
-        "language": result.transcript.language,
-        "segments": len(result.transcript.segments),
-        "seconds": round(time.monotonic() - started, 1),
-    }
+    result.update(
+        complete=True,
+        already_complete=False,
+        resumed_from_ms=start_ms,
+        language=transcript.language,
+        segments=len(transcript.segments),
+        seconds=seconds,
+    )
+    if store.damaged is not None:
+        result["damaged_transcript"] = str(store.damaged)
+    return result
 
 
 def cmd_transcribe_stream(args: argparse.Namespace) -> dict[str, Any]:
@@ -553,6 +693,12 @@ def cmd_archive_stream(args: argparse.Namespace) -> dict[str, Any]:
     from watch_me.editor.recording import LoadedRecording
     from watch_me.export.archive import ArchiveError, archive_recording
     from watch_me.host.runner import SessionError, resolve_session
+    from watch_me.host.transcription_lock import (
+        BUSY,
+        busy_message,
+        transcription_holder,
+        transcription_lock,
+    )
     from watch_me.platform.process import lower_own_priority
     from watch_me.transcribe.pipeline import stream_transcription
 
@@ -583,6 +729,15 @@ def cmd_archive_stream(args: argparse.Namespace) -> dict[str, Any]:
 
     def transcribe() -> None:
         _require_audio(paths, base)
+        lock = transcription_lock(paths)
+        if not lock.acquire():
+            raise CliError(BUSY, busy_message(paths, transcription_holder(paths)))
+        try:
+            transcribe_locked()
+        finally:
+            lock.release()
+
+    def transcribe_locked() -> None:
         emit_event({"event": "phase", "phase": "transcribing"})
         recording = LoadedRecording.load(paths)
 
@@ -590,8 +745,9 @@ def cmd_archive_stream(args: argparse.Namespace) -> dict[str, Any]:
             kind = event.get("event")
             if kind == "segment":
                 segment = Segment.from_dict(event)
-                recording.add_segments([segment], segment.end_ms)
+                recording.add_segments([segment], segment.end_ms, defer=True)
             elif kind == "progress":
+                recording.save_transcript_if_due()
                 total = max(1, recording.duration_ms)
                 reached = recording.transcribed_ms
                 fraction = max(float(event.get("fraction", 0.0)), reached / total)
@@ -599,9 +755,15 @@ def cmd_archive_stream(args: argparse.Namespace) -> dict[str, Any]:
                     {"event": "progress", "phase": "transcribing", "fraction": min(1.0, fraction)}
                 )
 
-        done = stream_transcription(
-            paths, cfg, base_dir=base, start_ms=recording.transcribed_ms, emit=on_transcription
-        )
+        try:
+            done = stream_transcription(
+                paths, cfg, base_dir=base, start_ms=recording.transcribed_ms, emit=on_transcription
+            )
+        finally:
+            try:
+                recording.flush_transcript()  # an error keeps what whisper produced
+            except OSError as exc:
+                log.warning("cannot store the transcript of %s: %s", paths.session_id, exc)
         recording.finish_transcript(done.get("language"), done.get("model"), done.get("backend"))
         if stop.is_set():
             raise CliError(ARCHIVE_CANCELLED, "archiving was stopped")
@@ -620,7 +782,9 @@ def cmd_archive_stream(args: argparse.Namespace) -> dict[str, Any]:
     except Exception as exc:
         # Whatever went wrong (no audio, whisper, FFmpeg, a bug): unless the run was
         # stopped, the recording must not stay locked in the archive queue.
-        if getattr(exc, "code", None) != ARCHIVE_CANCELLED and not stop.is_set():
+        # Nor does a recording another process transcribes right now count as failed:
+        # the editor queues it again.
+        if getattr(exc, "code", None) not in (ARCHIVE_CANCELLED, BUSY) and not stop.is_set():
             reason = exc.message if isinstance(exc, CliError) else f"{type(exc).__name__}: {exc}"
             try:
                 record_archive_failure(paths, reason)
@@ -897,8 +1061,19 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--inline-chars", type=int, default=DEFAULT_INLINE_CHARS, help=inline_help)
     p.set_defaults(func=cmd_mouse)
 
-    p = sub.add_parser("transcribe", help="(re)transcribe an existing recording directory")
+    p = sub.add_parser(
+        "transcribe",
+        help="complete the transcript of a recording (continues an incomplete one; "
+        "safe to run again after an interruption)",
+    )
     p.add_argument("directory", help="session id or recording directory")
+    p.add_argument(
+        "--again",
+        action="store_true",
+        help="transcribe from the start even when the transcript is complete; the "
+        "previous transcript, with the user's corrections, is kept as "
+        "transcript.before-again.json",
+    )
     p.set_defaults(func=cmd_transcribe)
 
     p = sub.add_parser("transcribe-stream", help=argparse.SUPPRESS)  # internal: editor worker

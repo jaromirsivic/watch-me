@@ -37,6 +37,7 @@ from watch_me.core.transcript import (
 from watch_me.host.mouse_timeline import LEGEND as MOUSE_LEGEND
 from watch_me.host.mouse_timeline import MOUSE_MODES, mouse_detail, mouse_events
 from watch_me.host.runner import FrameIndex, SessionError, archive_info
+from watch_me.host.transcription_lock import incomplete_transcript
 
 CLIPBOARD_EXCERPT_CHARS = 200
 # Ctrl held this briefly without a snapped shape is a shortcut (Ctrl+Z, ...), not snapping.
@@ -851,10 +852,7 @@ def build_timeline(
     if pointer.note:
         result["mouse_note"] = pointer.note
     if not status.complete:
-        result["transcript_note"] = (
-            f"The transcript is incomplete (segments reach {status.transcribed_ms} ms); "
-            "run `watch-me transcribe` first."
-        )
+        result.update(incomplete_transcript(paths, status))
     archive = archive_info(paths, base)
     if archive is not None:
         result["archive"] = archive

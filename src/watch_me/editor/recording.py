@@ -40,12 +40,8 @@ from watch_me.core.transcript import (
     Segment,
     Transcript,
     display_cues,
-    drop_credit_hallucinations,
-    merge_segments,
-    normalize_segments,
-    read_transcript,
-    write_transcript,
 )
+from watch_me.core.transcript_store import TranscriptStore
 from watch_me.host.runner import FrameIndex, FrameRef
 
 from .mouse_activity import MouseActivity
@@ -137,12 +133,17 @@ class LoadedRecording:
         transcript: Transcript | None,
         audio: AudioFile | None,
         archive: ArchiveState | None = None,
+        store: TranscriptStore | None = None,
     ) -> None:
         self.paths = paths
         self.archive = archive
         self.manifest = manifest
         self.frames = frames
-        self.transcript = transcript
+        # The transcript in memory and on disk (``store``: as it was loaded).
+        base = paths.final_dir
+        self._store = store or TranscriptStore(
+            paths.transcript_txt_path(base), paths.transcript_json_path(base), transcript
+        )
         self.audio = audio
         # The audio tracks on disk (microphone, computer) and which are switched on.
         self.tracks: dict[str, Path] = {}
@@ -165,24 +166,21 @@ class LoadedRecording:
         base = paths.final_dir
         manifest = read_manifest(paths.manifest_path(base))
         archive = read_archive_state(paths, base)
-        transcript: Transcript | None = None
-        transcript_path = paths.transcript_json_path(base)
-        if transcript_path.exists():
-            try:
-                transcript = read_transcript(transcript_path)
-            except (OSError, ValueError, KeyError) as exc:
-                log.warning("cannot read transcript %s: %s", transcript_path, exc)
+        store = TranscriptStore.load(
+            paths.transcript_txt_path(base), paths.transcript_json_path(base)
+        )
+        transcript = store.transcript
         mouse_log = _load_mouse(paths, base)
         if archive is not None and archive.archived:
             screen_ids = [s.id for s in manifest.screens] or archive.screens
             frames: FrameIndex = StillFrames(
                 paths.archive_dir(base), paths.frames_info_dir(base), screen_ids
             )
-            archived = cls(paths, manifest, frames, transcript, None, archive)
+            archived = cls(paths, manifest, frames, transcript, None, archive, store)
             archived.set_mouse_log(mouse_log)  # input/ is kept by the archiving
             return archived
         frames = _load_frame_index(paths, base)
-        recording = cls(paths, manifest, frames, transcript, None, archive)
+        recording = cls(paths, manifest, frames, transcript, None, archive, store)
         recording.set_mouse_log(mouse_log)
         recording.tracks = existing_tracks(paths, base)
         recording.selection = read_selection(paths, base)
@@ -324,6 +322,23 @@ class LoadedRecording:
     # Transcript -------------------------------------------------------------
 
     @property
+    def transcript(self) -> Transcript | None:
+        """The transcript in memory; during a transcription it may be a few seconds
+        ahead of the files (see :class:`~watch_me.core.transcript_store.TranscriptStore`)."""
+        return self._store.transcript
+
+    @property
+    def transcript_unsaved(self) -> bool:
+        """True while segments of a transcription are not written yet."""
+        return self._store.dirty
+
+    @property
+    def damaged_transcript(self) -> Path | None:
+        """Where an unreadable ``transcript.json`` was moved to before a new transcript
+        was written over it (``None``: there was none)."""
+        return self._store.damaged
+
+    @property
     def transcript_complete(self) -> bool:
         """False while the recording still needs (more) transcription."""
         return self.transcript is not None and self.transcript.complete
@@ -342,12 +357,24 @@ class LoadedRecording:
 
     def _store_transcript(self, updated: Transcript) -> None:
         """Write ``transcript.txt``/``.json`` and adopt ``updated`` (files first)."""
-        base = self.paths.final_dir
-        write_transcript(
-            self.paths.transcript_txt_path(base), self.paths.transcript_json_path(base), updated
-        )
-        self.transcript = updated
+        self._store.replace(updated)
         self._index_segments(updated.segments)
+
+    def save_transcript_if_due(self) -> bool:
+        """Write pending segments unless the files were written a moment ago or are
+        held by another program; True when the files are up to date."""
+        return self._store.save_if_due()
+
+    def flush_transcript(self) -> None:
+        """Write the segments of a transcription that are still only in memory
+        (``OSError`` when the files cannot be written)."""
+        self._store.save()
+
+    def reload_transcript(self) -> None:
+        """Take the transcript that is on the disk now: another process (the
+        ``transcribe`` command) may have written more than this object knows."""
+        self._store.reload()
+        self._index_segments(self.transcript.segments if self.transcript else [])
 
     def _index_segments(self, segments: list[Segment]) -> None:
         """Both narration tracks sorted by start, and the cues a viewer reads."""
@@ -362,13 +389,23 @@ class LoadedRecording:
         self._cues = display_cues(self._segments)
         self._cue_starts = [c.start_ms for c in self._cues]
 
-    def add_segments(self, segments: list[Segment], transcribed_ms: int) -> list[Segment]:
-        """Segments the background transcription produced: stored as an incomplete
-        transcript (``complete`` false, ``transcribed_ms`` = how far whisper got) and
-        written, so that an interrupted transcription resumes there. Returns the
-        segments that were new."""
-        updated, new = merge_segments(self.transcript, segments, transcribed_ms)
-        self._store_transcript(updated)
+    def add_segments(
+        self, segments: list[Segment], transcribed_ms: int, *, defer: bool = False
+    ) -> list[Segment]:
+        """Segments the background transcription produced: kept as an incomplete
+        transcript (``complete`` false, ``transcribed_ms`` = how far whisper got), so
+        that an interrupted transcription resumes there. Returns the segments that
+        were new.
+
+        Written at once (``OSError`` when that fails; the segments stay in memory), or
+        with ``defer`` at most once in a few seconds: a running transcription delivers
+        thousands of segments, and :meth:`flush_transcript` writes the rest."""
+        new = self._store.add_segments(segments, transcribed_ms)
+        self._index_segments(self.transcript.segments if self.transcript else [])
+        if defer:
+            self._store.save_if_due()
+        else:
+            self._store.save()
         return new
 
     def reset_transcript(self) -> None:
@@ -383,17 +420,8 @@ class LoadedRecording:
     ) -> None:
         """The background transcription reached the end: mark the transcript complete,
         write it and record it in ``manifest.json``."""
-        transcript = self.transcript or Transcript(language=None, segments=[])
-        updated = replace(
-            transcript,
-            language=language or transcript.language,
-            model=model or transcript.model,
-            backend=backend or transcript.backend,
-            segments=drop_credit_hallucinations(normalize_segments(transcript.segments)),
-            complete=True,
-            transcribed_ms=None,
-        )
-        self._store_transcript(updated)
+        updated = self._store.finish(language, model, backend)
+        self._index_segments(updated.segments)
         manifest_path = self.paths.manifest_path(self.paths.final_dir)
         try:
             manifest = read_manifest(manifest_path)

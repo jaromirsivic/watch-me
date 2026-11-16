@@ -284,8 +284,8 @@ One event per line, ordered by time in milliseconds since the recording started:
   choose it yourself.
 
 The result also carries `screens` (ids and image sizes; `screen1` is the primary),
-`counts`, `mouse` (`recorded`, `mode`) and `transcript_complete`; when it is false, run
-`transcribe` first (see below).
+`counts`, `mouse` (`recorded`, `mode`) and `transcript_complete`; when it is false, do
+what `transcript_note` says first (usually `transcribe`, see below).
 
 Everything the mouse lines leave out - the whole content up to 4096 characters (longer
 texts end with `...`), the element's bounds in pixels of the screen image, its parents,
@@ -384,10 +384,19 @@ Mention the detected language if it is unexpected. Keep the recording folder unt
   model; `doctor --fix` downloads FFmpeg when missing; `setup` also downloads the model.
   Settings, model and FFmpeg live in the state folder (`~/.watch-me`, or the
   repository of a development checkout; `config path` names it and says why).
-- `transcribe <recording_dir>` - redo (or complete) the transcription of an existing
-  recording, when the user asks you to work with a recording whose transcript is not
-  complete (`describe` and `timeline` report `transcript_complete` false with a
-  `transcript_note`).
+- `transcribe <recording_dir>` - complete the transcript of an existing recording, when
+  the user asks you to work with a recording whose transcript is not complete
+  (`describe` and `timeline` report `transcript_complete` false with a
+  `transcript_note` that says what to do). It continues where the transcript ends and
+  stores what it has as it goes, so it is safe to interrupt and to run again: a long
+  recording takes minutes, so run it in the background or with a long time limit, and
+  after a time-out simply run it again (`resumed_from_ms` in the result shows where it
+  went on). A complete transcript is left as it is (`already_complete: true`) - it
+  may hold subtitles the user corrected. `TRANSCRIPTION_BUSY` means the editor or
+  another `transcribe` is transcribing that recording right now: wait and ask again,
+  do not start a second one. `transcribe --again` throws the transcript away and makes
+  it anew (the old one stays as `transcript.before-again.json`); use it only when the
+  user asks for a new transcription in so many words.
 - `sessions` - the recent sessions, newest first, one short entry each (id, status,
   folder, `recording_dir`, start, duration, `archived`; `--limit N`, default 20);
   `status --session <id>` - the full state of one session.

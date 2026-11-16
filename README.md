@@ -36,7 +36,8 @@ crop.json              {"start_ms", "end_ms"} chosen in the editor (absent = who
 instructions.txt       master instructions for the AI typed in the editor (absent = none)
 transcript.txt         [HH:MM:SS.mmm --> HH:MM:SS.mmm] text
 transcript.json        {"language": "cs", "complete": true, "segments": [{"start_ms", "end_ms", "text"}]}
-                       (complete false + transcribed_ms while the editor is still transcribing)
+                       (complete false + transcribed_ms while the editor is still transcribing;
+                       `watch-me transcribe <id>` completes it without the editor)
 frames/0_500_screen1.jpg   screenshot of screen1 at 500 ms (JPEG 70 % by default, PNG optional)
 frames_info/0_500_screen1.json  sidecar of that frame: {"time_ms": 500, "screen": "screen1", "cursor": {"screen": "screen2", "x": 412, "y": 388},
                             "drawings": [{"id": 1, "tool": "rectangle", "color": "#FF0000", "screen": "screen1",

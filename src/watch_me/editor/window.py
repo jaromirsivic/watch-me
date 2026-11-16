@@ -336,6 +336,11 @@ ARCHIVING_MESSAGE = "This video is being archived."
 ARCHIVED_NOTE = "Not available for an archived video"
 BEING_ARCHIVED_REASON = "it is being archived"
 TRANSCRIBING_NOTE = "Available once the transcription is complete"
+TRANSCRIBED_ELSEWHERE_STATUS = "transcribed by another process"
+TRANSCRIBED_ELSEWHERE_NOTE = (
+    "Another process (watch-me transcribe) is transcribing this recording; "
+    "the editor goes on when it has finished."
+)
 RENDER_VIDEO_LABEL = "Render Video..."
 CANCEL_RENDER_LABEL = "Cancel Rendering"
 RENDER_ONE_NOTE = "Select one video to render"
@@ -551,6 +556,7 @@ class EditorWindow(QMainWindow):
         self._crop_dirty_for: LoadedRecording | None = None  # pending debounced write
         self.transcription = transcription or TranscriptionManager(config, config_file, self)
         self.transcription.started.connect(self._on_transcription_started)
+        self.transcription.waiting.connect(self._on_transcription_waiting)
         self.transcription.segment.connect(self._on_transcription_segment)
         self.transcription.progress.connect(self._on_transcription_progress)
         self.transcription.finished.connect(self._on_transcription_finished)
@@ -2888,6 +2894,9 @@ class EditorWindow(QMainWindow):
         if self.renderer.running == recording.session_id:
             self._show_status_message(BEING_RENDERED_NOTE + ".")
             return None
+        if self.transcription.busy_elsewhere(recording.paths) is not None:
+            self._show_status_message(TRANSCRIBED_ELSEWHERE_NOTE)
+            return None
         return recording
 
     def toggle_audio_track(self, track: str) -> None:
@@ -3047,6 +3056,13 @@ class EditorWindow(QMainWindow):
     def _shown(self, session_id: str) -> LoadedRecording | None:
         recording = self.recording
         return recording if recording is not None and recording.session_id == session_id else None
+
+    def _on_transcription_waiting(self, session_id: str, _pid: int) -> None:
+        """Another process (a ``watch-me transcribe`` command) transcribes the
+        recording: the editor goes on from its result once it has ended."""
+        if self._shown(session_id) is not None:
+            self._show_status_message(TRANSCRIBED_ELSEWHERE_NOTE)
+            self._update_status()
 
     def _on_transcription_started(self, session_id: str) -> None:
         self._transcription_origin.pop(session_id, None)
@@ -3426,6 +3442,8 @@ class EditorWindow(QMainWindow):
             return ""
         if recording.session_id in self._transcription_failed:
             return "transcription failed"
+        if self.transcription.waiting_for == recording.session_id:
+            return TRANSCRIBED_ELSEWHERE_STATUS
         if (
             self.transcription.is_running(recording.session_id)
             or recording.session_id in self._transcription_fraction

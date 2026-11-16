@@ -338,6 +338,50 @@ def test_atomic_write_text_removes_tmp_on_failure(tmp_path: Path, monkeypatch):
     assert target.read_text(encoding="utf-8") == "{}" and list(target.parent.iterdir()) == [target]
 
 
+def test_atomic_write_text_durable_syncs_the_tmp_file(tmp_path: Path, monkeypatch):
+    """A durable write flushes its data to the disk once before the rename; a plain one
+    never does."""
+    target = tmp_path / "transcript.json"
+    real_fsync = fileio.os.fsync
+    calls: list[int] = []
+
+    def counting_fsync(fd):
+        calls.append(fd)
+        real_fsync(fd)
+
+    monkeypatch.setattr(fileio.os, "fsync", counting_fsync)
+    fileio.atomic_write_text(target, '{"a": 1}\n', durable=True)
+    assert len(calls) == 1
+    assert target.read_text(encoding="utf-8") == '{"a": 1}\n'
+    assert list(tmp_path.iterdir()) == [target]
+
+    calls.clear()
+    fileio.atomic_write_text(target, '{"a": 2}\n')
+    assert calls == []
+    assert target.read_text(encoding="utf-8") == '{"a": 2}\n'
+    assert list(tmp_path.iterdir()) == [target]
+
+
+def test_atomic_write_text_attempts_limits_the_renames(tmp_path: Path, monkeypatch):
+    """``attempts`` bounds the retries of a blocked rename; the target keeps its old
+    content and no ``.tmp`` file is left behind."""
+    target = tmp_path / "transcript.json"
+    fileio.atomic_write_text(target, "old")
+    calls: list[int] = []
+
+    def always_denied(a, b):
+        calls.append(1)
+        raise PermissionError(13, "Access is denied")
+
+    monkeypatch.setattr(fileio.os, "replace", always_denied)
+    monkeypatch.setattr(fileio, "REPLACE_DELAY_S", 0)
+    with pytest.raises(PermissionError):
+        fileio.atomic_write_text(target, "new", durable=True, attempts=2)
+    assert len(calls) == 2
+    assert target.read_text(encoding="utf-8") == "old"
+    assert list(tmp_path.iterdir()) == [target]
+
+
 def test_write_state_while_another_reader_holds_the_file(tmp_path: Path):
     """The agent polls ``state.json`` while the window rewrites it. On Windows a reader
     without ``FILE_SHARE_DELETE`` makes the rename fail with WinError 5; the write

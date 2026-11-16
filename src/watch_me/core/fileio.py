@@ -26,9 +26,14 @@ READ_DELAY_S = 0.025  # 40 x 25 ms = 1 s of replace storms before a read fails
 
 
 def replace_with_retry(
-    src: Path, dst: Path, attempts: int = REPLACE_ATTEMPTS, delay: float = REPLACE_DELAY_S
+    src: Path, dst: Path, attempts: int | None = None, delay: float | None = None
 ) -> None:
-    """``os.replace`` that retries ``PermissionError`` (Windows sharing violations)."""
+    """``os.replace`` that retries ``PermissionError`` (Windows sharing violations).
+
+    ``None`` means :data:`REPLACE_ATTEMPTS` / :data:`REPLACE_DELAY_S`, read at call time.
+    """
+    attempts = REPLACE_ATTEMPTS if attempts is None else attempts
+    delay = REPLACE_DELAY_S if delay is None else delay
     for attempt in range(attempts):
         try:
             os.replace(src, dst)
@@ -40,18 +45,33 @@ def replace_with_retry(
 
 
 def atomic_write_text(
-    path: Path, text: str, encoding: str = "utf-8", newline: str | None = None
+    path: Path,
+    text: str,
+    encoding: str = "utf-8",
+    newline: str | None = None,
+    *,
+    durable: bool = False,
+    attempts: int | None = None,
 ) -> None:
     """Write ``text`` to ``path`` through a ``.tmp`` sibling and an atomic rename.
 
     ``newline`` is passed to ``open``: ``"\\n"`` keeps LF line ends on Windows too (the
-    default translates them to the platform's).
+    default translates them to the platform's). ``durable`` flushes the ``.tmp`` file to
+    the disk before the rename, so a power loss cannot leave a renamed file without its
+    data. ``attempts`` is how often the rename is tried (``None``: the default of
+    :func:`replace_with_retry`).
     """
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_name(path.name + ".tmp")
-    tmp.write_text(text, encoding=encoding, newline=newline)
     try:
-        replace_with_retry(tmp, path)
+        if durable:
+            with open(tmp, "w", encoding=encoding, newline=newline) as handle:
+                handle.write(text)
+                handle.flush()
+                os.fsync(handle.fileno())
+        else:
+            tmp.write_text(text, encoding=encoding, newline=newline)
+        replace_with_retry(tmp, path, attempts=attempts)
     except OSError:
         try:
             tmp.unlink()

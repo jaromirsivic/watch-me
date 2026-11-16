@@ -45,6 +45,7 @@ from watch_me.host import startup
 from watch_me.host.agent_output import DEFAULT_INLINE_CHARS, fits_inline
 from watch_me.host.errors import HostError
 from watch_me.host.readiness import require_ready
+from watch_me.host.transcription_lock import incomplete_transcript
 from watch_me.host.waiting import timeout_seconds
 from watch_me.host.window_start import (
     AUTO,
@@ -739,10 +740,7 @@ def describe_recording(
     data["transcript_complete"] = status.complete
     if not status.complete:
         data["transcribed_ms"] = status.transcribed_ms
-        data["transcript_note"] = (
-            "The transcript is incomplete (the editor transcribes in the background); "
-            f"segments reach {status.transcribed_ms} ms. `watch-me transcribe` completes it."
-        )
+        data.update(incomplete_transcript(paths, status))
     json_path = paths.transcript_json_path(base)
     if json_path.exists():
         try:

@@ -11,15 +11,19 @@ from __future__ import annotations
 
 import json
 import re
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from .fileio import atomic_write_text
 from .timeline import format_timestamp
 
 UPPER_TRACK = 0  # the narration track every transcription fills
 LOWER_TRACK = 1  # the second subtitle track the user moves subtitles to in the editor
 LOWER_TRACK_MARK = "[lower track]"
+READ_ATTEMPTS = 8
+READ_DELAY_S = 0.025  # 8 x 25 ms = 0.2 s of sharing violations before a read fails
 
 
 @dataclass(frozen=True)
@@ -156,24 +160,58 @@ def transcript_to_text(transcript: Transcript) -> str:
     return "\n".join(lines) + ("\n" if lines else "")
 
 
-def write_transcript(txt_path: Path, json_path: Path, transcript: Transcript) -> None:
-    txt_path.write_text(transcript_to_text(transcript), encoding="utf-8")
-    json_path.write_text(
-        json.dumps(transcript.to_dict(), indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
+def write_transcript(
+    txt_path: Path, json_path: Path, transcript: Transcript, *, attempts: int | None = None
+) -> None:
+    """Write ``transcript.json`` and then ``transcript.txt``, each atomically and durably.
+
+    A reader never sees a half-written file, and a crash or power loss leaves the
+    previous file whole. The JSON goes first because it is the source of truth; the text
+    is derived from it. ``attempts`` is how often each rename is tried (``None``: the
+    default of :func:`watch_me.core.fileio.replace_with_retry`).
+    """
+    atomic_write_text(
+        json_path,
+        json.dumps(transcript.to_dict(), indent=2, ensure_ascii=False) + "\n",
+        durable=True,
+        attempts=attempts,
     )
+    atomic_write_text(txt_path, transcript_to_text(transcript), durable=True, attempts=attempts)
+
+
+def _read_json(path: Path) -> Any:
+    """``json.loads`` of ``path``, retrying only sharing violations (Windows).
+
+    Opening the file while it is being replaced fails with an ``OSError`` for a moment,
+    so that is retried. ``FileNotFoundError`` and malformed JSON are raised at once: the
+    files are written atomically, so malformed content is really damaged, and the editor
+    reads the transcripts of all recordings on its GUI thread.
+    """
+    for _ in range(READ_ATTEMPTS - 1):
+        try:
+            return json.loads(path.read_text(encoding="utf-8"))
+        except FileNotFoundError:
+            raise
+        except OSError:
+            time.sleep(READ_DELAY_S)
+    return json.loads(path.read_text(encoding="utf-8"))
 
 
 def read_transcript(json_path: Path) -> Transcript:
-    return Transcript.from_dict(json.loads(json_path.read_text(encoding="utf-8")))
+    return Transcript.from_dict(_read_json(json_path))
 
 
 @dataclass(frozen=True)
 class TranscriptStatus:
-    """What ``transcript.json`` says about a recording without loading its segments."""
+    """What ``transcript.json`` says about a recording without loading its segments.
+
+    ``unreadable``: the file exists but cannot be read or parsed (damaged).
+    """
 
     exists: bool
     complete: bool
     transcribed_ms: int
+    unreadable: bool = False
 
     @property
     def pending(self) -> bool:
@@ -186,15 +224,18 @@ def transcript_status(json_path: Path) -> TranscriptStatus:
     if not json_path.exists():
         return TranscriptStatus(exists=False, complete=False, transcribed_ms=0)
     try:
-        data = json.loads(json_path.read_text(encoding="utf-8"))
+        data = _read_json(json_path)
         complete = bool(data.get("complete", True))
         transcribed = data.get("transcribed_ms")
         if transcribed is None:
             transcribed = max((int(s["end_ms"]) for s in data.get("segments", [])), default=0)
         return TranscriptStatus(exists=True, complete=complete, transcribed_ms=int(transcribed))
-    except (OSError, ValueError, KeyError, TypeError):
-        # Unreadable: treat as pending so that the editor transcribes it again.
-        return TranscriptStatus(exists=True, complete=False, transcribed_ms=0)
+    except FileNotFoundError:
+        # Removed between the check and the read: absent.
+        return TranscriptStatus(exists=False, complete=False, transcribed_ms=0)
+    except (OSError, ValueError, KeyError, TypeError, AttributeError):
+        # Damaged: the callers decide what to do with it (it is still pending).
+        return TranscriptStatus(exists=True, complete=False, transcribed_ms=0, unreadable=True)
 
 
 def normalize_segments(segments: list[Segment]) -> list[Segment]:

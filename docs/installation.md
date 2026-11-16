@@ -412,6 +412,14 @@ WATCH_ME_INTEGRATION=1 uv run pytest tests/integration/test_recording.py tests/i
   command has returned (Codex, Cursor): the command most likely ran inside
   the host's sandbox. Approve running it outside the sandbox when the host asks, or use
   the MCP server for that host (section 3).
+- A transcript that is not complete (`transcript_complete: false` in `describe` and
+  `timeline`): `watch-me transcribe <session id>` completes it. It continues where the
+  transcript ends, stores its progress every few seconds and can be interrupted and run
+  again; a complete transcript is left alone unless `--again` is given (the previous
+  one is then kept as `transcript.before-again.json`). `TRANSCRIPTION_BUSY`: the editor
+  or another `transcribe` is transcribing that recording - one process at a time does.
+  A `transcript.json` that cannot be read is never overwritten: it is kept as
+  `transcript.damaged.json` next to the new one.
 - `WINDOW_ENDED_WITH_COMMAND` (the editor: `closed` with `reason: ended_with_command`):
   the host stopped the window together with the command that started it. Start it once
   more with the arguments in `next` (`--start outside`); see "What the window needs from

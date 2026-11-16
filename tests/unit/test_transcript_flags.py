@@ -8,6 +8,8 @@ from pathlib import Path
 
 import pytest
 
+from watch_me.core import fileio
+from watch_me.core import transcript as transcript_module
 from watch_me.core.manifest import Manifest, write_manifest
 from watch_me.core.screens import Screen
 from watch_me.core.session import (
@@ -54,6 +56,95 @@ def test_transcript_flags_round_trip_and_legacy_default(tmp_path: Path):
     assert not missing.exists and missing.pending and missing.transcribed_ms == 0
     js.write_text("not json", encoding="utf-8")
     assert transcript_status(js).pending  # unreadable: transcribe it again
+
+
+def test_write_transcript_replaces_the_json_first(tmp_path: Path, monkeypatch):
+    """``transcript.json`` is the source of truth, so it is renamed into place before
+    ``transcript.txt``, and no ``.tmp`` file is left behind."""
+    real_replace = fileio.os.replace
+    targets: list[str] = []
+
+    def recording_replace(src, dst):
+        targets.append(Path(dst).name)
+        real_replace(src, dst)
+
+    monkeypatch.setattr(fileio.os, "replace", recording_replace)
+    txt, js = tmp_path / "transcript.txt", tmp_path / "transcript.json"
+    write_transcript(txt, js, Transcript("cs", [Segment(0, 1000, "a")]))
+    assert targets == ["transcript.json", "transcript.txt"]
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["transcript.json", "transcript.txt"]
+    assert read_transcript(js).segments == [Segment(0, 1000, "a")]
+
+
+def test_write_transcript_keeps_the_previous_json_when_the_rename_fails(
+    tmp_path: Path, monkeypatch
+):
+    """A blocked rename raises and leaves the previous ``transcript.json`` whole."""
+    txt, js = tmp_path / "transcript.txt", tmp_path / "transcript.json"
+    write_transcript(txt, js, Transcript("cs", [Segment(0, 1000, "a")]))
+    previous = js.read_text(encoding="utf-8")
+
+    def always_denied(a, b):
+        raise PermissionError(13, "Access is denied")
+
+    monkeypatch.setattr(fileio.os, "replace", always_denied)
+    monkeypatch.setattr(fileio, "REPLACE_DELAY_S", 0)
+    with pytest.raises(OSError):
+        write_transcript(
+            txt, js, Transcript("cs", [Segment(0, 1000, "a"), Segment(1000, 2000, "b")]), attempts=1
+        )
+    assert js.read_text(encoding="utf-8") == previous
+    assert json.loads(previous)["segments"] == [{"start_ms": 0, "end_ms": 1000, "text": "a"}]
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["transcript.json", "transcript.txt"]
+
+
+def test_transcript_status_tells_a_damaged_file_apart(tmp_path: Path):
+    """A file that exists but cannot be parsed is ``unreadable`` (and still pending); a
+    good file and a missing one are not."""
+    js = tmp_path / "transcript.json"
+    for damaged in ("", "garbage {"):
+        js.write_text(damaged, encoding="utf-8")
+        status = transcript_status(js)
+        assert status.exists and status.unreadable
+        assert status.pending and status.transcribed_ms == 0
+
+    write_transcript(tmp_path / "transcript.txt", js, Transcript("cs", [Segment(0, 1000, "a")]))
+    assert not transcript_status(js).unreadable
+    missing = transcript_status(tmp_path / "nope.json")
+    assert not missing.exists and not missing.unreadable
+
+
+def test_read_transcript_retries_only_sharing_violations(tmp_path: Path, monkeypatch):
+    """A sharing violation while the file is being replaced is retried; malformed JSON
+    is raised after one read, without waiting."""
+    js = tmp_path / "transcript.json"
+    write_transcript(tmp_path / "transcript.txt", js, Transcript("cs", [Segment(0, 1000, "a")]))
+    monkeypatch.setattr(transcript_module, "READ_DELAY_S", 0)
+    real_read_text = Path.read_text
+    calls: list[int] = []
+
+    def flaky_read_text(self, *args, **kwargs):
+        calls.append(1)
+        if len(calls) == 1:
+            raise PermissionError(13, "Access is denied")
+        return real_read_text(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_text", flaky_read_text)
+    assert read_transcript(js).segments == [Segment(0, 1000, "a")]
+    assert len(calls) == 2
+
+    monkeypatch.setattr(Path, "read_text", real_read_text)
+    js.write_text("not json", encoding="utf-8")
+    calls.clear()
+
+    def counting_read_text(self, *args, **kwargs):
+        calls.append(1)
+        return real_read_text(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_text", counting_read_text)
+    with pytest.raises(ValueError):
+        read_transcript(js)
+    assert len(calls) == 1
 
 
 @pytest.mark.parametrize(

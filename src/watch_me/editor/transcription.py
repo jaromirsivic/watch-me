@@ -4,15 +4,21 @@ After **Stop -> Video Editor** the recording reaches the editor untranscribed. T
 editor then runs ``watch-me transcribe-stream <recording dir> --from-ms N`` in a
 child process and reads one JSON event per line from its stdout (see
 :func:`watch_me.transcribe.pipeline.stream_transcription`). Every ``segment`` is
-stored in the :class:`LoadedRecording` right away (``transcript.json`` with
-``complete`` false and ``transcribed_ms``) and reported to the window, which shows it
-as a subtitle; ``done`` makes the transcript complete. Closing the editor kills the
-child: whatever was stored stays, and the next time the recording is shown the
+kept in the :class:`LoadedRecording` right away and reported to the window, which
+shows it as a subtitle; the files (``transcript.json`` with ``complete`` false and
+``transcribed_ms``) follow at most once in a few seconds and whenever the worker
+stops. ``done`` makes the transcript complete. Closing the editor kills the child:
+whatever was produced is stored, and the next time the recording is shown the
 transcription resumes at ``transcribed_ms`` instead of starting over.
 
 One recording is transcribed at a time: the one shown in the editor. Showing another
 incomplete recording stops the running worker (its stored progress is kept) and starts
 one for the new recording once the old process has ended.
+
+While the worker runs the editor holds the recording's transcription lock
+(:mod:`watch_me.host.transcription_lock`). When another process holds it (a
+``watch-me transcribe`` command), the editor waits, and takes what that process wrote
+from the disk before it goes on.
 """
 
 from __future__ import annotations
@@ -23,11 +29,14 @@ from collections import deque
 from pathlib import Path
 from typing import Any
 
-from PySide6.QtCore import QObject, QProcess, Signal
+from PySide6.QtCore import QObject, QProcess, QTimer, Signal
 
 from watch_me.core.config import Config, config_path
 from watch_me.core.session import SessionPaths
 from watch_me.core.transcript import Segment
+from watch_me.core.transcript_store import SAVE_INTERVAL_S
+from watch_me.host.editor_lock import EditorLock
+from watch_me.host.transcription_lock import transcription_holder, transcription_lock
 from watch_me.platform.process import python_command
 
 from .recording import LoadedRecording
@@ -36,17 +45,21 @@ log = logging.getLogger(__name__)
 
 KILL_WAIT_MS = 3000
 STDERR_TAIL_LINES = 12
+LOCK_RETRY_MS = 2000  # how often a recording transcribed by another process is tried
+SAVE_RETRY_MS = 1000  # pending segments that could not be written are tried again
 
 
 class TranscriptionManager(QObject):
     """Runs the ``transcribe-stream`` worker for the recording it was given.
 
-    The manager writes the segments into the recording itself (on the GUI thread, from
+    The manager puts the segments into the recording itself (on the GUI thread, from
     the process signals); the signals tell the window what changed. They carry the
     session id so that the window can ignore events of a recording it no longer shows.
     """
 
     started = Signal(str)  # session id
+    # session id, pid (0: unknown): another process transcribes it; the editor waits
+    waiting = Signal(str, int)
     # session id, fraction 0..1, position_ms: how far whisper got (for the arrow)
     progress = Signal(str, float, int)
     segment = Signal(str, object)  # session id, Segment (already stored)
@@ -67,6 +80,14 @@ class TranscriptionManager(QObject):
         self._done: dict[str, Any] | None = None
         self._killed = False
         self._start_ms = 0  # where the running worker started
+        self._lock: EditorLock | None = None  # held while our worker runs
+        self._waiting: LoadedRecording | None = None  # another process transcribes it
+        self._lock_timer = QTimer(self)
+        self._lock_timer.setInterval(LOCK_RETRY_MS)
+        self._lock_timer.timeout.connect(self._retry_waiting)
+        self._save_timer = QTimer(self)
+        self._save_timer.setSingleShot(True)
+        self._save_timer.timeout.connect(self._save_due)
 
     # State ------------------------------------------------------------------
 
@@ -84,6 +105,20 @@ class TranscriptionManager(QObject):
 
     def is_running(self, session_id: str) -> bool:
         return self.running == session_id
+
+    @property
+    def waiting_for(self) -> str | None:
+        """Session id of the recording another process transcribes right now and the
+        editor waits for (``None``: none)."""
+        return self._waiting.session_id if self._waiting is not None else None
+
+    def busy_elsewhere(self, paths: SessionPaths) -> int | None:
+        """Pid of another process that transcribes the recording (``0``: unknown),
+        ``None`` when nobody but this editor does."""
+        if self._lock is not None and self._recording is not None:
+            if self._recording.session_id == paths.session_id:
+                return None  # our own worker
+        return transcription_holder(paths)
 
     # Starting and stopping --------------------------------------------------
 
@@ -111,6 +146,9 @@ class TranscriptionManager(QObject):
             return False
         if self.is_running(recording.session_id):
             self.adopt(recording)
+            return False
+        if self.waiting_for == recording.session_id:
+            self._waiting = recording  # the window shows a fresh object of it
             return False
         if self._process is not None:
             self.stop()
@@ -148,6 +186,25 @@ class TranscriptionManager(QObject):
             self._recording = recording
 
     def _launch(self, recording: LoadedRecording) -> None:
+        self._stop_waiting()
+        lock = transcription_lock(recording.paths)
+        if not lock.acquire():
+            self._wait_for(recording)
+            return
+        # Another process may have written more than this object knows (it was loaded
+        # before, or we waited for that process): go on from what is on the disk.
+        try:
+            recording.reload_transcript()
+        except OSError as exc:
+            log.warning("cannot read the transcript of %s again: %s", recording.session_id, exc)
+        if recording.transcript_complete:
+            lock.release()
+            session_id = recording.session_id
+            log.info("the transcript of %s was completed by another process", session_id)
+            # Not from inside start(): the window is in the middle of updating itself.
+            QTimer.singleShot(0, lambda: self.finished.emit(session_id, {"event": "done"}))
+            return
+        self._lock = lock
         start_ms = recording.transcribed_ms
         args = self.command(recording.paths, start_ms)
         process = QProcess(self)
@@ -168,12 +225,14 @@ class TranscriptionManager(QObject):
         self.started.emit(recording.session_id)
 
     def stop(self) -> None:
-        """Kill the worker (the transcript stored so far is kept; it resumes later)."""
+        """Kill the worker (the transcript produced so far is stored; it resumes later)."""
         self._pending = None
+        self._stop_waiting()
         process = self._process
         if process is None:
             return
-        self._killed = True
+        self._killed = True  # no segment is taken from now on
+        self._flush()
         if process.state() != QProcess.ProcessState.NotRunning:
             process.kill()
 
@@ -182,6 +241,52 @@ class TranscriptionManager(QObject):
         self.stop()
         if process is not None and process.state() != QProcess.ProcessState.NotRunning:
             process.waitForFinished(timeout_ms)
+        self._release_lock()  # the finished signal may never be delivered now
+
+    # The lock and the files -------------------------------------------------
+
+    def _release_lock(self) -> None:
+        lock, self._lock = self._lock, None
+        if lock is not None:
+            lock.release()
+
+    def _wait_for(self, recording: LoadedRecording) -> None:
+        holder = transcription_holder(recording.paths) or 0
+        log.info("%s is being transcribed by process %d: waiting", recording.session_id, holder)
+        self._waiting = recording
+        self._lock_timer.start()
+        self.waiting.emit(recording.session_id, holder)
+
+    def _stop_waiting(self) -> None:
+        self._waiting = None
+        self._lock_timer.stop()
+
+    def _retry_waiting(self) -> None:
+        recording = self._waiting
+        if recording is None or self._process is not None:
+            self._lock_timer.stop()
+            return
+        if transcription_holder(recording.paths) is None:
+            self._launch(recording)
+
+    def _flush(self) -> None:
+        """Write the segments that are still only in memory."""
+        self._save_timer.stop()
+        recording = self._recording
+        if recording is None:
+            return
+        try:
+            recording.flush_transcript()
+        except OSError as exc:
+            log.warning("cannot store the transcript of %s: %s", recording.session_id, exc)
+
+    def _save_due(self) -> None:
+        """The timer behind a segment that was not written with it: try again."""
+        recording = self._recording
+        if recording is None or self._killed:
+            return
+        if not recording.save_transcript_if_due():
+            self._save_timer.start(SAVE_RETRY_MS)
 
     # Worker output ----------------------------------------------------------
 
@@ -232,10 +337,11 @@ class TranscriptionManager(QObject):
                 segment = Segment.from_dict(event)
             except (KeyError, ValueError, TypeError):
                 return
-            try:
-                recording.add_segments([segment], segment.end_ms)
-            except OSError as exc:
-                log.warning("cannot store a segment of %s: %s", session_id, exc)
+            # In memory now, in the files at most once in a few seconds (_flush writes
+            # the rest when the worker stops).
+            recording.add_segments([segment], segment.end_ms, defer=True)
+            if recording.transcript_unsaved and not self._save_timer.isActive():
+                self._save_timer.start(int(SAVE_INTERVAL_S * 1000))
             self.segment.emit(session_id, segment)
         elif kind == "progress":
             try:
@@ -265,6 +371,8 @@ class TranscriptionManager(QObject):
     def _on_error(self, error: QProcess.ProcessError) -> None:
         if error != QProcess.ProcessError.FailedToStart:
             return
+        self._flush()
+        self._release_lock()
         process, self._process = self._process, None
         recording, self._recording = self._recording, None
         program = process.program() if process is not None else "?"
@@ -277,36 +385,48 @@ class TranscriptionManager(QObject):
         self._start_pending()
 
     def _on_finished(self, exit_code: int, status: QProcess.ExitStatus) -> None:
+        if self._process is not None and self._recording is not None:
+            self._consume_stdout(self._process, final=True)  # the last segments
+        normal = exit_code == 0 and status == QProcess.ExitStatus.NormalExit
+        if self._done is not None and normal and not self._killed:
+            self._save_timer.stop()  # finish_transcript below writes everything
+        else:
+            self._flush()
         process, self._process = self._process, None
         recording, self._recording = self._recording, None
         if process is None or recording is None:
+            self._release_lock()
             self._start_pending()
             return
-        self._consume_stdout(process, final=True)
         self._consume_stderr(process)
         process.deleteLater()
         done, self._done = self._done, None
         session_id = recording.session_id
         if self._killed:
             log.info("transcription of %s stopped (worker killed)", session_id)
+            self._release_lock()
             self._start_pending()
             return
-        if done is not None and exit_code == 0 and status == QProcess.ExitStatus.NormalExit:
+        if done is not None and normal:
             try:
                 recording.finish_transcript(
                     done.get("language"), done.get("model"), done.get("backend")
                 )
             except OSError as exc:
                 log.warning("cannot write the transcript of %s: %s", session_id, exc)
+                self._release_lock()
                 self.failed.emit(session_id, f"cannot write the transcript: {exc}")
             else:
                 log.info("transcription of %s complete: %s", session_id, done)
+                # Released before the signal: a slot may start the next transcription.
+                self._release_lock()
                 self.finished.emit(session_id, done)
             self._start_pending()
             return
         tail = " | ".join(self._stderr) or f"exit code {exit_code}"
         message = _error_message(tail)
         log.warning("transcription of %s failed: %s", session_id, message)
+        self._release_lock()
         self.failed.emit(session_id, message)
         self._start_pending()
 
@@ -328,6 +448,20 @@ def _error_message(stderr_tail: str) -> str:
             if isinstance(data, dict) and data.get("message"):
                 return str(data["message"])
     return stderr_tail
+
+
+def _error_code(stderr_tail: str) -> str | None:
+    """The ``code`` of the CLI's JSON error object (last stderr line), if there is one."""
+    for part in reversed(stderr_tail.split(" | ")):
+        part = part.strip()
+        if part.startswith("{"):
+            try:
+                data = json.loads(part)
+            except ValueError:
+                continue
+            if isinstance(data, dict) and data.get("code"):
+                return str(data["code"])
+    return None
 
 
 __all__ = ["TranscriptionManager"]
