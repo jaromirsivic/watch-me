@@ -14,15 +14,24 @@ import sys
 from pathlib import Path
 
 
+def find_session(folder: Path) -> Path | None:
+    """The newest recording under ``folder``.
+
+    A recording lies in ``<recording folder>/<folder of the user>/<session id>/`` (a new one
+    in ``default``); a session directly in the recording folder is accepted as well.
+    """
+    manifests = [*folder.glob("*/manifest.json"), *folder.glob("*/*/manifest.json")]
+    sessions = [m.parent for m in manifests if not m.parent.name.startswith(".")]
+    return max(sessions, key=lambda p: p.name, default=None)  # session ids sort by time
+
+
 def summarise(folder: Path) -> dict:
-    sessions = sorted(p for p in folder.iterdir() if p.is_dir() and not p.name.startswith("."))
-    if not sessions:
+    session = find_session(folder)
+    if session is None:
         return {"error": f"no recording in {folder}"}
-    session = sessions[-1]
     manifest = json.loads((session / "manifest.json").read_text(encoding="utf-8"))
     frames_dir = session / manifest["frames"]["dir"]
     frames = sorted(p for p in frames_dir.iterdir() if p.suffix in {".png", ".jpg"})
-    sidecars = sorted(frames_dir.glob("*.json"))
     report: dict = {
         "session": session.name,
         "platform": manifest.get("platform"),
@@ -38,6 +47,7 @@ def summarise(folder: Path) -> dict:
             for s in manifest["screens"]
         ],
         "frames": len(frames),
+        "ticks": manifest["frames"].get("ticks"),
         "dropped_ticks": manifest["frames"].get("dropped_ticks"),
         "first_frames": [p.name for p in frames[:4]],
     }
@@ -51,8 +61,16 @@ def summarise(folder: Path) -> dict:
         report["image_check"] = sizes
     except Exception as exc:  # pragma: no cover
         report["image_check"] = f"unavailable: {exc}"
-    if sidecars:
-        report["sidecar"] = json.loads(sidecars[0].read_text(encoding="utf-8"))
+    # What the first tick showed: the line after the header of the tick index.
+    info = manifest["frames"]
+    index = session / info.get("info_dir", "frames_info") / info.get("info", "index.jsonl")
+    try:
+        lines = index.read_text(encoding="utf-8").splitlines()
+        report["index_lines"] = len(lines)
+        if len(lines) > 1:
+            report["first_tick"] = json.loads(lines[1])
+    except (OSError, ValueError) as exc:
+        report["index"] = f"unreadable: {exc}"
     return report
 
 
