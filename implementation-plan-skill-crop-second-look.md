@@ -1,6 +1,6 @@
 # Implementační plán: držet se ořezu a druhé kolo snímků
 
-Datum: 17. 11. 2026. Verze plánu: 3. Stav: **K1–K5 a README implementovány 17. 11. 2026, necommitováno**. Verze zvednuta na 0.4.0 (čtyři manifesty, `src/watch_me/__init__.py` a `uv.lock`). Zbývá: ruční zkoušky z oddílu 5.
+Datum: 17. 11. 2026. Verze plánu: 3. Stav: **K1–K5 a README implementovány 17. 11. 2026 (commit `d92eeeb`)**. Verze zvednuta na 0.4.0 (čtyři manifesty, `src/watch_me/__init__.py` a `uv.lock`; commit `eda75f5`). Zbývá: ruční zkoušky z oddílu 5.
 
 Kontext: kontrola toho, jak agent po stisku **Process** zpracovává nahrávku, ukázala odchylky od záměru. Rozhodnutí uživatele ze 17. 11. 2026 k bodům, kterých se plán týká:
 
