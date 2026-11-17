@@ -1,6 +1,6 @@
 [project]
 name = "watch-me"
-version = "0.1.0"
+version = "0.4.0"
 description = "Record narrated screen sessions (audio, all screens, cursor) and hand a timed transcript plus frames to an AI agent."
 readme = "README.md"
 license = { file = "LICENSE" }
