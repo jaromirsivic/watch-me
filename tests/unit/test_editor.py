@@ -457,7 +457,7 @@ def editor(qtbot, folder: Path):
 
 
 def test_window_loads_newest_recording_and_workers(editor, qtbot):
-    assert editor.windowTitle() == "Watch Me Editor"
+    assert editor.windowTitle() == "Watch Me Video Editor"
     assert editor.list_view.currentIndex().row() == 1  # row 0: the default folder's header
     assert editor.model.duration_ms == DURATION_MS
     assert editor.model.screens == ["screen1", "screen2"]

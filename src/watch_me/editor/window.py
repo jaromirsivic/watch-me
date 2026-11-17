@@ -261,7 +261,7 @@ from .workers import automatic_gc_paused, collect_garbage
 
 log = logging.getLogger(__name__)
 
-WINDOW_TITLE = "Watch Me Editor"
+WINDOW_TITLE = "Watch Me Video Editor"
 TICK_MS = 33
 STEP_MS = 1000.0 / EXPORT_FPS
 ZOOM_SLIDER_MAX = 1000
@@ -3134,7 +3134,7 @@ class EditorWindow(QMainWindow):
             self._report_session_transcription(
                 session_id,
                 fraction,
-                f"Watch Me Editor open; transcribing {int(fraction * 100)} %"
+                f"Watch Me Video Editor open; transcribing {int(fraction * 100)} %"
                 f"{eta_text} (waiting for Process).",
             )
 
@@ -3154,7 +3154,9 @@ class EditorWindow(QMainWindow):
         # The progress events are throttled and the last one may be far below 100 %:
         # without this the agent would keep seeing "transcribing 73 %" until Process.
         self._report_session_transcription(
-            session_id, 1.0, "Watch Me Editor open; transcription complete (waiting for Process)."
+            session_id,
+            1.0,
+            "Watch Me Video Editor open; transcription complete (waiting for Process).",
         )
         self.list_view.set_activity(session_id, None)
         self._transcription_fraction.pop(session_id, None)
@@ -3184,7 +3186,7 @@ class EditorWindow(QMainWindow):
         self._report_session_transcription(
             session_id,
             self._transcription_fraction.get(session_id, 0.0),
-            f"Watch Me Editor open; transcription failed: {message} "
+            f"Watch Me Video Editor open; transcription failed: {message} "
             "(the user can retry it in the editor; waiting for Process).",
         )
         self.list_view.set_activity(session_id, None)

@@ -89,7 +89,7 @@ WAIT_AGAIN_HINT = "call watch_me_wait again until final is true"
 INSTRUCTIONS = """\
 Watch Me records the user's narration, periodic screenshots of every screen and the
 cursor position, then transcribes the audio offline. Workflow: call watch_me_start
-(opens the control window; the user records, stops, crops in the Watch Me Editor and
+(opens the control window; the user records, stops, crops in the Watch Me Video Editor and
 presses its "Process" button), then call
 watch_me_wait with the returned session_id in a loop until "final" is true. When the
 status is "processed", read the "instructions" first, then call watch_me_timeline: the
@@ -645,7 +645,7 @@ def tool_export(
 
 
 def tool_edit(session: str | None = None, config_file: Path | None = None) -> dict[str, Any]:
-    """Open the Watch Me Editor in its own process; mirror of ``watch-me edit --detach``."""
+    """Open the Watch Me Video Editor in its own process; mirror of ``watch-me edit --detach``."""
     from watch_me.host.editor_launcher import launch_editor
 
     return _guard(lambda: launch_editor(_load(config_file), session, config_file))
@@ -689,7 +689,7 @@ def create_server(config_file: Path | None = None) -> MCPServer:
     server = MCPServer(SERVER_NAME, instructions=INSTRUCTIONS)
 
     async def watch_me_start() -> dict[str, Any]:
-        """Open the Watch Me control window for the user. Returns the session_id to
+        """Open the Watch Me Recorder window for the user. Returns the session_id to
         pass to watch_me_wait; the user records, stops and presses Process in the editor."""
         return await anyio.to_thread.run_sync(lambda: tool_start(config_file))
 
@@ -887,7 +887,7 @@ def create_server(config_file: Path | None = None) -> MCPServer:
         )
 
     async def watch_me_edit(session_id: str | None = None) -> dict[str, Any]:
-        """Open the Watch Me Editor window for the user: a list of the stored
+        """Open the Watch Me Video Editor window for the user: a list of the stored
         recordings, a preview with subtitles, a timeline per screen with In/Out crop
         handles, a Render button (MP4 + SRT) and a green Process button. session_id
         preselects a recording (default: the newest). Returns at once with

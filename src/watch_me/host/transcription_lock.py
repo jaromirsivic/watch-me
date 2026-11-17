@@ -44,7 +44,7 @@ def transcription_holder(paths: SessionPaths) -> int | None:
 def busy_message(paths: SessionPaths, holder: int | None) -> str:
     who = f"process {holder}" if holder else "another process"
     return (
-        f"The recording {paths.session_id} is being transcribed by {who} (the Watch Me "
+        f"The recording {paths.session_id} is being transcribed by {who} (the Watch Me Video "
         "Editor or another `watch-me transcribe`). Wait for it to finish."
     )
 
@@ -60,7 +60,7 @@ def incomplete_transcript(paths: SessionPaths, status: TranscriptStatus) -> dict
             f"The transcript is incomplete (segments reach {status.transcribed_ms} ms) and "
             "is being completed right now"
             + (f" by process {holder}" if holder else "")
-            + " (the Watch Me Editor or `watch-me transcribe`). Wait and ask again; do not "
+            + " (the Watch Me Video Editor or `watch-me transcribe`). Wait and ask again; do not "
             "start another transcription."
         )
     elif status.unreadable:

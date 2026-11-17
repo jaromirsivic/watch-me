@@ -102,7 +102,7 @@ def test_video_editor_choice_then_close_cancels(qapp_real, tmp_path: Path, monke
     assert len(editor_sessions) == 1
     assert read_editor_event(editor_sessions[0])["event"] == "open"
 
-    handle = _find_window("Watch Me Editor", 30, qapp_real)
+    handle = _find_window("Watch Me Video Editor", 30, qapp_real)
     assert handle, "the editor window did not appear"
     _wait(qapp_real, 1500)
     assert editor_running_pid(config) is not None

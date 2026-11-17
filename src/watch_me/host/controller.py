@@ -198,7 +198,7 @@ class SessionController:
         summary = self.stop_recording()
         self._set_status(
             Status.PROCESSING,
-            "Saving the recording; the Watch Me Editor transcribes it.",
+            "Saving the recording; the Watch Me Video Editor transcribes it.",
             recorded_duration_ms=summary.recorded_duration_ms,
             progress=0.0,
         )
@@ -223,7 +223,7 @@ class SessionController:
             raise
         self._set_status(
             Status.EDITING,
-            "Recording saved; opening the Watch Me Editor, which transcribes it "
+            "Recording saved; opening the Watch Me Video Editor, which transcribes it "
             "(waiting for Process).",
             progress=0.0,
             recording_dir=str(final_dir),
@@ -245,7 +245,7 @@ class SessionController:
             return  # the editor already adopted/finished it, never overwrite its newer state
         self._set_status(
             Status.EDITING,
-            "Watch Me Editor open; transcribing in the background, waiting for the user "
+            "Watch Me Video Editor open; transcribing in the background, waiting for the user "
             "to press Process.",
             pid=editor_pid,
         )

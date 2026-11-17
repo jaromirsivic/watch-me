@@ -15,7 +15,7 @@ BUTTON_ICON_SIZE = QSize(20, 20)
 class StopChoice(Enum):
     # A stopped recording always goes through the editor: only its Process button hands
     # the recording to the agent.
-    EDITOR = "editor"  # save the recording and open it in the Watch Me Editor
+    EDITOR = "editor"  # save the recording and open it in the Watch Me Video Editor
     CONTINUE = "continue"
     DISCARD = "discard"
 
@@ -37,7 +37,7 @@ class StopDialog(QDialog):
 
         self.editor_button = QPushButton(pencil_icon(), "Video Editor")
         self.editor_button.setToolTip(
-            "Stop recording and open it at once in the Watch Me Editor, which transcribes "
+            "Stop recording and open it at once in the Watch Me Video Editor, which transcribes "
             "the audio in the background while you crop it; its green Process button hands "
             "the result to the agent"
         )

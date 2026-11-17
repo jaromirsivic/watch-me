@@ -1,4 +1,4 @@
-"""Start the Watch Me Editor window in a detached process (``edit --detach``)."""
+"""Start the Watch Me Video Editor window in a detached process (``edit --detach``)."""
 
 from __future__ import annotations
 

@@ -3,7 +3,7 @@
 The rows form four sections separated by thin lines (no headings):
 
 1. general - **Theme** of the user interface (Light, the default, or Dark), shared by the
-   recorder and the Watch Me Editor (``theme`` in ``config.json``; the editor's sun /
+   recorder and the Watch Me Video Editor (``theme`` in ``config.json``; the editor's sun /
    moon button changes the same setting; choosing one applies it at once, Save keeps it,
    Cancel brings the previous one back), and **Minimize to Tray** (what the minimize
    button of the control window does: *Do not minimize to tray*, the default, minimizes
@@ -87,14 +87,14 @@ MINIMIZE_TO_TRAY_CHOICES = (
     (True, "Minimize to tray"),
 )
 MINIMIZE_TO_TRAY_TOOLTIP = (
-    "What the minimize button of the Watch Me window does: minimize it to the taskbar "
+    "What the minimize button of the Watch Me Recorder window does: minimize it to the taskbar "
     "(the default), or hide it behind an icon in the system tray (a click on the icon "
-    "shows it again). The Watch Me Editor always minimizes to the taskbar."
+    "shows it again). The Watch Me Video Editor always minimizes to the taskbar."
 )
 
 THEME_CHOICES = (("light", "Light"), ("dark", "Dark"))
 THEME_TOOLTIP = (
-    "The look of Watch Me: the recorder and the Watch Me Editor share it (the "
+    "The look of Watch Me: Watch Me Recorder and Watch Me Video Editor share it (the "
     "editor's sun / moon button changes it too). Light is the default."
 )
 
@@ -256,7 +256,7 @@ class SettingsDialog(QDialog):
         self.archive_after_spin.setToolTip(
             "Recordings older than this are archived (one MP4 video per screen and one AAC "
             "file per audio track; the frames and the WAV audio are deleted) when the "
-            "Watch Me Editor starts. No recording is deleted automatically. "
+            "Watch Me Video Editor starts. No recording is deleted automatically. "
             f"{ARCHIVE_AFTER_MIN_DAYS} ({ARCHIVE_NEVER_TEXT}): old recordings are not "
             "archived by themselves; Archive Video in the editor still works."
         )

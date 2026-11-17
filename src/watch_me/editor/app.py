@@ -25,7 +25,7 @@ from watch_me.platform import get_platform
 
 log = logging.getLogger(__name__)
 
-WINDOW_TITLE = "Watch Me Editor"
+WINDOW_TITLE = "Watch Me Video Editor"
 
 
 def bring_existing_to_front(title: str = WINDOW_TITLE) -> bool:
@@ -96,16 +96,16 @@ def _run_editor(config, session_id, config_file, editor_session, recording_sessi
         log.info("editor already running (pid %s); raising its window", holder)
         bring_existing_to_front()
         who = f" (pid {holder})" if holder else ""
-        raise SessionError("ALREADY_RUNNING", f"the Watch Me Editor is already open{who}")
+        raise SessionError("ALREADY_RUNNING", f"the Watch Me Video Editor is already open{who}")
 
     if editor_session is not None:
         write_editor_event(editor_session, "open", pid=os.getpid())
 
     app = QApplication.instance() or QApplication(sys.argv)
-    app.setApplicationName("Watch Me Editor")
-    install_app_icon(app, "WatchMe.Editor")
+    app.setApplicationName("Watch Me Video Editor")
+    install_app_icon(app, "WatchMe.VideoEditor")
     app.setOrganizationName("WatchMe")
-    settings = QSettings("WatchMe", "Editor")
+    settings = QSettings("WatchMe", "VideoEditor")
     try:
         window = EditorWindow(
             config,

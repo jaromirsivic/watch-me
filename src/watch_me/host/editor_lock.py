@@ -1,4 +1,4 @@
-"""Single-instance lock of the Watch Me Editor.
+"""Single-instance lock of the Watch Me Video Editor.
 
 The running editor keeps ``<recording_folder>/.work/editor.lock`` open with an
 exclusive, non-blocking OS lock (``msvcrt.locking`` on Windows, ``fcntl.flock``

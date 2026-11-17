@@ -520,7 +520,7 @@ def _transcribe_locked(cfg: Any, paths: SessionPaths, base: Path, *, again: bool
         if editor is not None:
             raise CliError(
                 "EDITOR_OPEN",
-                "The Watch Me Editor is open"
+                "The Watch Me Video Editor is open"
                 + (f" (process {editor})" if editor else "")
                 + ": the user may be correcting this transcript there. Close the editor "
                 "first, or use its Transcribe again.",
@@ -854,7 +854,7 @@ def cmd_export(args: argparse.Namespace) -> dict[str, Any]:
 
 
 def cmd_edit(args: argparse.Namespace) -> dict[str, Any]:
-    """Open the Watch Me Editor (``--detach``: in its own process, return at once)."""
+    """Open the Watch Me Video Editor (``--detach``: in its own process, return at once)."""
     from watch_me.host.editor_launcher import launch_editor
     from watch_me.host.runner import SessionError
 
@@ -990,7 +990,9 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("version", help="show the plugin version")
     p.set_defaults(func=cmd_version)
 
-    p = sub.add_parser("run", help="open the control window (agents: use --detach, then wait)")
+    p = sub.add_parser(
+        "run", help="open the Watch Me Recorder window (agents: use --detach, then wait)"
+    )
     p.add_argument("--detach", action="store_true", help="return immediately with the session id")
     p.add_argument(
         "--timeout", type=float, help="without --detach: give up waiting after N seconds"
@@ -1127,7 +1129,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--no-srt", action="store_true", help="do not write subtitles next to it")
     p.set_defaults(func=cmd_export)
 
-    p = sub.add_parser("edit", help="open the Watch Me Editor (agents: use --detach)")
+    p = sub.add_parser("edit", help="open the Watch Me Video Editor (agents: use --detach)")
     p.add_argument("--detach", action="store_true", help="start the editor and return at once")
     p.add_argument("--session", help="recording to select (default: the newest)")
     p.add_argument("--editor-session", help=argparse.SUPPRESS)  # internal: event file

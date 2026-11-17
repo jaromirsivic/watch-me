@@ -63,7 +63,7 @@ def _run_ui(config, session_id, config_file, request) -> int:
 
     status = platform.support_status()
     app = QApplication.instance() or QApplication(sys.argv)
-    app.setApplicationName("Watch Me")
+    app.setApplicationName("Watch Me Recorder")
     install_app_icon(app, "WatchMe.Recorder")
     app.setQuitOnLastWindowClosed(False)
 
@@ -74,7 +74,7 @@ def _run_ui(config, session_id, config_file, request) -> int:
     controller.config_file = config_file
     if not status.supported:
         controller.fail(status.reason, code="UNSUPPORTED_PLATFORM")
-        QMessageBox.critical(None, "Watch Me", status.reason)
+        QMessageBox.critical(None, "Watch Me Recorder", status.reason)
         return 3
 
     _housekeeping_in_background(config, session_id)

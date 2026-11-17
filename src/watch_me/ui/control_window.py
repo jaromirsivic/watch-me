@@ -109,10 +109,11 @@ RESUME_QUESTION = (
 )
 TRAY_BALLOON_MS = 8000
 TRAY_SHOW_HINT = (
-    "click the Watch Me icon in the system tray (under ^ if it is hidden) to show the window again."
+    "click the Watch Me Recorder icon in the system tray (under ^ if it is hidden) to show the "
+    "window again."
 )
 KEYPOINT_COOLDOWN_S = 3  # the button counts 3, 2, 1 before the next keypoint
-SAVED_NOTE = "What was recorded so far is saved and opens in the Watch Me Editor."
+SAVED_NOTE = "What was recorded so far is saved and opens in the Watch Me Video Editor."
 
 
 class ProcessingWorker(QObject):
@@ -165,7 +166,7 @@ class ControlWindow(QWidget):
     """Main window. ``on_finished`` is called with the final status when the session ends.
 
     However a recording ends - Stop and **Video Editor**, the auto stop, low disk space,
-    a capture failure - it is saved and opened in the Watch Me Editor; nothing is
+    a capture failure - it is saved and opened in the Watch Me Video Editor; nothing is
     handed to the agent from here (only the editor's **Process** button does that).
 
     ``preflight`` returns what the transcription would miss (the Whisper model, FFmpeg);
@@ -199,7 +200,7 @@ class ControlWindow(QWidget):
         self._worker: ProcessingWorker | None = None
         self._stop_dialog: StopDialog | None = None
 
-        self.setWindowTitle("Watch Me")
+        self.setWindowTitle("Watch Me Recorder")
         # A normal window (not a tool window): only that gets a minimize button in its
         # title bar on Windows; minimizing may hide it to the tray (see changeEvent).
         self.setWindowFlags(
@@ -805,7 +806,7 @@ class ControlWindow(QWidget):
         self._worker.moveToThread(self._thread)
         self._thread.started.connect(self._worker.run)
         self._note_audio_warning(None)
-        self.status_label.setText("Opening the Watch Me Editor...")
+        self.status_label.setText("Opening the Watch Me Video Editor...")
         self._worker.finished.connect(self._on_processed)
         self._worker.failed.connect(self._on_processing_failed)
         collect_garbage()  # closed dialogs die here, on the GUI thread (see editor/workers.py)
@@ -878,7 +879,7 @@ class ControlWindow(QWidget):
         QMessageBox.critical(
             self,
             "Saving the recording failed",
-            f"{message}\n\nThe recorded files were kept; the next start of Watch Me or "
+            f"{message}\n\nThe recorded files were kept; the next start of Watch Me Recorder or "
             "of the editor finishes the recording and lists it in the editor.",
         )
         self._finish("failed")
@@ -942,7 +943,7 @@ class ControlWindow(QWidget):
             return False
         if self._tray is None:
             self._tray = QSystemTrayIcon(app_icon(), self)
-            self._tray.setToolTip("Watch Me - click to show the window")
+            self._tray.setToolTip("Watch Me Recorder - click to show the window")
             self._tray.activated.connect(self._on_tray_activated)
         self._tray.show()
         self.hide()
@@ -951,7 +952,7 @@ class ControlWindow(QWidget):
         else:
             message = TRAY_SHOW_HINT[0].upper() + TRAY_SHOW_HINT[1:]
         self._tray.showMessage(
-            "Watch Me", message, QSystemTrayIcon.MessageIcon.Information, TRAY_BALLOON_MS
+            "Watch Me Recorder", message, QSystemTrayIcon.MessageIcon.Information, TRAY_BALLOON_MS
         )
         return True
 
@@ -1197,7 +1198,7 @@ class ControlWindow(QWidget):
             log.warning("shown to the user: %s", warning)
             if self.in_tray and self._tray is not None:
                 self._tray.showMessage(
-                    "Watch Me", warning, QSystemTrayIcon.MessageIcon.Warning, 10_000
+                    "Watch Me Recorder", warning, QSystemTrayIcon.MessageIcon.Warning, 10_000
                 )
             else:
                 QApplication.alert(self)
