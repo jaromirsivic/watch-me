@@ -1,6 +1,6 @@
 # Implementační plán: přejmenování na Watch Me Recorder a Watch Me Video Editor
 
-Datum: 14. 11. 2026, upraveno 17. 11. 2026. Verze plánu: 6. Stav: **rozhodnutí schválena, neimplementováno**.
+Datum: 14. 11. 2026, upraveno 17. 11. 2026. Verze plánu: 6. Stav: **R1–R5 implementovány 17. 11. 2026**. R0 nebylo potřeba (v profilu nebyly žádné staré odkazy). Zbývá R6 body 3–8 (ruční zkoušky) a zvednutí verze pluginu.
 
 Změny ve verzi 4 (rozhodnutí uživatele ze 17. 11. 2026):
 
@@ -127,18 +127,15 @@ Spouštěče:
 
 - `watch-me-recorder.bat` ř. 2: `call "%~dp0watch-me-recorder.cmd" %*`; `watch-me-video-editor.bat` ř. 2: `call "%~dp0watch-me-video-editor.cmd" %*`.
 - Komentář v hlavičce `.cmd` (ř. 3) a `.sh` (ř. 2): „Watch Me Recorder launcher“ a „Watch Me Video Editor launcher“. Hláška `ROOT_NOT_FOUND` („Watch Me root not found…“) zůstává, jde o produkt.
-- Výchozí chování bez parametrů (D2). V `.cmd` nahradit poslední volání (dnes ř. 25, `call "%WM_ROOT%\scripts\launch.bat" %*`) větvením bez návěští:
+- Výchozí chování bez parametrů (D2). V `.cmd` nahradit poslední volání (`call "%WM_ROOT%\scripts\launch.bat" %*`) dvěma jednořádkovými podmínkami bez návěští:
 
   ```bat
-  if "%~1"=="" (
-    call "%WM_ROOT%\scripts\launch.bat" run --detach
-  ) else (
-    call "%WM_ROOT%\scripts\launch.bat" %*
-  )
+  if "%~1"=="" call "%WM_ROOT%\scripts\launch.bat" run --detach
+  if not "%~1"=="" call "%WM_ROOT%\scripts\launch.bat" %*
   exit /b %ERRORLEVEL%
   ```
 
-  U editoru `edit --detach`. `exit /b %ERRORLEVEL%` musí zůstat **za** blokem; uvnitř závorek by se hodnota dosadila předčasně. V `.sh` před voláním `launch.sh`: `[ "$#" -eq 0 ] && set -- run --detach` (u editoru `edit --detach`). Soubory `.cmd` jsou záměrně bez návěští a s konci řádků LF; to zachovat.
+  U editoru `edit --detach`. Záměrně ne blok v závorkách: `%*` uvnitř bloku by ukončila závorka `)` v parametru. V `.sh` před voláním `launch.sh`: `if [ "$#" -eq 0 ]; then set -- run --detach; fi` (u editoru `edit --detach`). Soubory `.cmd` jsou záměrně bez návěští a s konci řádků LF; to zachovat. Oba spouštěče se smějí lišit jen titulkem a výchozím příkazem (`test_launchers.py` to hlídá).
 
 `skills/watch-me-recorder/SKILL.md`:
 

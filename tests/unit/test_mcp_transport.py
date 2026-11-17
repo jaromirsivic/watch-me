@@ -77,7 +77,7 @@ def test_stdio_bat_with_spaces_and_real_bootstrap(tmp_path):
             "/d",
             "/c",
             "call",
-            str(link / "skills/watch-me/scripts/watch-me.bat"),
+            str(link / "skills/watch-me-recorder/scripts/watch-me-recorder.bat"),
             "--config",
             str(config),
             "mcp",

@@ -121,9 +121,9 @@ Their expected wait is now 45 seconds, with a host budget of at least 60 seconds
 
 | # | Do | Must happen |
 | --- | --- | --- |
-| C1 | `& .\scripts\install-hosts.ps1 -Codex` | Prints `created ...\.agents\skills\watch-me` and `...-edit` (and `removed` for a link left in `.codex\skills`) |
-| C2 | `codex` in the test folder, then `/skills` | `watch-me` and `watch-me-editor` are listed, each once (O1) |
-| C3 | Type `Start Watch Me` | The agent runs `...\skills\watch-me\scripts\watch-me.bat run --detach` (O2). Codex asks to run it outside the sandbox, or the agent asks you first (O3): approve |
+| C1 | `& .\scripts\install-hosts.ps1 -Codex` | Prints `created ...\.agents\skills\watch-me-recorder` and `...\watch-me-video-editor` (and `removed` for a link left in `.codex\skills`) |
+| C2 | `codex` in the test folder, then `/skills` | `watch-me-recorder` and `watch-me-video-editor` are listed, each once (O1) |
+| C3 | Type `Start Watch Me` | The agent runs `...\skills\watch-me-recorder\scripts\watch-me-recorder.bat run --detach` (O2). Codex asks to run it outside the sandbox, or the agent asks you first (O3): approve |
 | C4 | Look at the screen | The Watch Me window appears and is still open after the agent has shown the result with `session_id` (O4) |
 | C5 | Watch the agent | It calls `wait --session <id> --timeout 45` and calls it again after `timed_out` (O6) |
 | C6 | Record, say the task, Stop, Video Editor (default), wait for the green arrow to reach the end, Process | The control window closes, the editor opens, Process closes it |
@@ -150,9 +150,9 @@ Remove the block afterwards.
 
 | # | Do | Must happen |
 | --- | --- | --- |
-| U1 | With no Watch Me link in `.claude\skills`, `.agents\skills` or `.codex\skills`: `& .\scripts\install-hosts.ps1 -Cursor` | Prints `created ...\.cursor\skills\watch-me` and `...-edit` |
+| U1 | With no Watch Me link in `.claude\skills`, `.agents\skills` or `.codex\skills`: `& .\scripts\install-hosts.ps1 -Cursor` | Prints `created ...\.cursor\skills\watch-me-recorder` and `...\watch-me-video-editor` |
 | U2 | Restart Cursor, open the test folder, **Customize > Skills** | Both skills are listed, each once (O1) |
-| U3 | New Agent chat: `Start Watch Me` | The agent runs `watch-me.bat run --detach` (O2); note any approval card or "outside the sandbox" notice (O3) |
+| U3 | New Agent chat: `Start Watch Me` | The agent runs `watch-me-recorder.bat run --detach` (O2); note any approval card or "outside the sandbox" notice (O3) |
 | U4 | Look at the screen | The window appears and stays open after the command has returned (O4) |
 | U5 | Watch the agent | `wait --timeout 45` runs to its end or to the event, and is called again after `timed_out` (O6) |
 | U6 | Record, say the task, Stop, Video Editor, Process | As in C6 |

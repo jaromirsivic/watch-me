@@ -1,5 +1,5 @@
 #!/usr/bin/env sh
-# Register the Watch Me skills (watch-me, watch-me-editor) with Claude Code, Codex
+# Register the Watch Me skills (watch-me-recorder, watch-me-video-editor) with Claude Code, Codex
 # and/or Cursor (symbolic links).
 #   scripts/install-hosts.sh --claude [--codex] [--cursor] [--remove]
 # Where each host looks for user skills (docs/installation.md, section 3, cites the pages):
@@ -12,7 +12,7 @@
 set -e
 SCRIPT_DIR=$(CDPATH= cd -P -- "$(dirname -- "$0")" && pwd -P)
 ROOT=$(CDPATH= cd -P -- "$SCRIPT_DIR/.." && pwd -P)
-SKILL_NAMES="watch-me watch-me-editor"
+SKILL_NAMES="watch-me-recorder watch-me-video-editor"
 for name in $SKILL_NAMES; do
   [ -f "$ROOT/skills/$name/SKILL.md" ] || { echo "Skill directory not found: skills/$name" >&2; exit 1; }
 done
@@ -148,7 +148,7 @@ if [ "$REMOVE" = 0 ]; then
     cat <<EOF
 
 Claude Desktop - add to claude_desktop_config.json:
-{"mcpServers": {"watch-me": {"command": "sh", "args": ["$ROOT/skills/watch-me/scripts/watch-me.sh", "mcp"]}}}
+{"mcpServers": {"watch-me": {"command": "sh", "args": ["$ROOT/skills/watch-me-recorder/scripts/watch-me-recorder.sh", "mcp"]}}}
 EOF
   fi
   if [ "$CODEX" = 1 ]; then
@@ -157,7 +157,7 @@ EOF
 Codex - add to ~/.codex/config.toml (or run: codex mcp add watch-me -- sh <launcher.sh> mcp):
 [mcp_servers.watch-me]
 command = "sh"
-args = ["$ROOT/skills/watch-me/scripts/watch-me.sh", "mcp"]
+args = ["$ROOT/skills/watch-me-recorder/scripts/watch-me-recorder.sh", "mcp"]
 tool_timeout_sec = 60
 EOF
   fi
@@ -165,7 +165,7 @@ EOF
     cat <<EOF
 
 Cursor - add to ~/.cursor/mcp.json (or .cursor/mcp.json in a project):
-{"mcpServers": {"watch-me": {"type": "stdio", "command": "sh", "args": ["$ROOT/skills/watch-me/scripts/watch-me.sh", "mcp"]}}}
+{"mcpServers": {"watch-me": {"type": "stdio", "command": "sh", "args": ["$ROOT/skills/watch-me-recorder/scripts/watch-me-recorder.sh", "mcp"]}}}
 EOF
   fi
   echo ""

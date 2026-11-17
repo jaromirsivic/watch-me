@@ -16,7 +16,7 @@ from pathlib import Path
 import pytest
 
 REPO = Path(__file__).resolve().parents[2]
-SKILLS = ("watch-me", "watch-me-editor")
+SKILLS = ("watch-me-recorder", "watch-me-video-editor")
 WINDOWS = sys.platform == "win32"
 CLAUDE = Path(".claude", "skills")
 AGENTS = Path(".agents", "skills")
@@ -144,12 +144,12 @@ def test_each_host_gets_its_documented_folder(home: Path, install):
 
 
 def test_codex_moves_a_legacy_link(home: Path, install):
-    _make_link(home / LEGACY_CODEX / "watch-me", REPO / "skills" / "watch-me")
+    _make_link(home / LEGACY_CODEX / "watch-me-recorder", REPO / "skills" / "watch-me-recorder")
     out = install("codex")
     assert "legacy location" in out
     assert _links(home) == _expected(AGENTS)
 
-    _make_link(home / LEGACY_CODEX / "watch-me", REPO / "skills" / "watch-me")
+    _make_link(home / LEGACY_CODEX / "watch-me-recorder", REPO / "skills" / "watch-me-recorder")
     install("codex", "remove")
     assert _links(home) == {}
 
@@ -175,18 +175,18 @@ def test_cursor_does_not_load_the_same_skill_twice(home: Path, install):
 
 def test_remove_takes_only_links(home: Path, install):
     install("claude", "codex", "cursor")
-    real = home / CURSOR / "watch-me"
+    real = home / CURSOR / "watch-me-recorder"
     real.mkdir(parents=True)  # a real folder of the same name is never touched
     (real / "keep.txt").write_text("x", encoding="utf-8")
     install("claude", "codex", "cursor", "remove")
     assert (real / "keep.txt").is_file()
-    real_target_still_there = REPO / "skills" / "watch-me" / "SKILL.md"
+    real_target_still_there = REPO / "skills" / "watch-me-recorder" / "SKILL.md"
     assert real_target_still_there.is_file()
     (real / "keep.txt").unlink()
     real.rmdir()
     assert _links(home) == {}
 
-    real = home / CLAUDE / "watch-me"
+    real = home / CLAUDE / "watch-me-recorder"
     real.mkdir(parents=True)
     install("claude", expect_ok=False)  # refuses to replace a real folder
     real.rmdir()

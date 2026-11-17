@@ -9,7 +9,7 @@ transcription (whisper.cpp through `pywhispercpp`, CPU only).
 
 Both windows use the same prepared-environment launcher. A normal start never
 downloads Python, packages, model or FFmpeg. Agents first call the launcher and
-repair only the reported problem, then retry. See [the shared recovery procedure](../skills/watch-me/references/agent-startup.md).
+repair only the reported problem, then retry. See [the shared recovery procedure](../skills/watch-me-recorder/references/agent-startup.md).
 `setup` installs components without probing screens/audio. `doctor` remains full
 diagnostics. Download progress is written to logs, not an application dialog.
 
@@ -126,8 +126,8 @@ uv run watch-me config set audio_input "Microphone (Realtek(R) Audio)"
 
 ## 3. Register the skills with your agent
 
-There are two skills, always registered together: `watch-me` (recording) and
-`watch-me-editor` (the editor and MP4 export). Each is a directory under `skills/`
+There are two skills, always registered together: `watch-me-recorder` (recording) and
+`watch-me-video-editor` (the editor and MP4 export). Each is a directory under `skills/`
 with a `SKILL.md`, `agents/openai.yaml` (Codex metadata) and the launcher scripts.
 A host can get them in one of three ways:
 
@@ -225,24 +225,24 @@ By hand (Windows junctions, Linux and macOS symbolic links):
 $repo = (Get-Location).Path                   # run it in the repository folder
 $dir = "$env:USERPROFILE\.claude\skills"      # Codex: .agents\skills, Cursor: .cursor\skills
 New-Item -ItemType Directory -Force $dir | Out-Null
-foreach ($s in 'watch-me', 'watch-me-editor') { cmd /c mklink /J "$dir\$s" "$repo\skills\$s" }
-# remove a link with: cmd /c rmdir "$dir\watch-me"   (never Remove-Item -Recurse)
+foreach ($s in 'watch-me-recorder', 'watch-me-video-editor') { cmd /c mklink /J "$dir\$s" "$repo\skills\$s" }
+# remove a link with: cmd /c rmdir "$dir\watch-me-recorder"   (never Remove-Item -Recurse)
 ```
 
 ```bash
 dir=~/.claude/skills                          # Codex: ~/.agents/skills, Cursor: ~/.cursor/skills
 mkdir -p "$dir"
-for s in watch-me watch-me-editor; do ln -s ~/watch-me/skills/$s "$dir/$s"; done
-# remove a link with: rm "$dir/watch-me"   (never rm -r)
+for s in watch-me-recorder watch-me-video-editor; do ln -s ~/watch-me/skills/$s "$dir/$s"; done
+# remove a link with: rm "$dir/watch-me-recorder"   (never rm -r)
 ```
 
 Then start a new session and say "Start Watch Me" or "Edit Watch Me":
 
 - Claude Code: a new session.
 - Codex: a new chat; Codex "detects skill changes automatically", restart it if the skill
-  does not appear. `/skills` lists them, `$watch-me` invokes one explicitly.
+  does not appear. `/skills` lists them, `$watch-me-recorder` invokes one explicitly.
 - Cursor: a new Agent chat (restart Cursor if the skill is missing); the skills are
-  listed in **Customize** and invoked explicitly with `/watch-me`.
+  listed in **Customize** and invoked explicitly with `/watch-me-recorder`.
 
 ### Plugin
 
@@ -295,7 +295,7 @@ Claude Desktop, `claude_desktop_config.json`:
   "mcpServers": {
     "watch-me": {
       "command": "cmd.exe",
-      "args": ["/d", "/c", "call", "C:\\path\\to\\watch-me\\skills\\watch-me\\scripts\\watch-me.bat", "mcp"]
+      "args": ["/d", "/c", "call", "C:\\path\\to\\watch-me\\skills\\watch-me-recorder\\scripts\\watch-me-recorder.bat", "mcp"]
     }
   }
 }
@@ -308,15 +308,15 @@ desktop app, CLI and IDE extension share it -
 ```toml
 [mcp_servers.watch-me]
 command = "cmd.exe"
-args = ["/d", "/c", "call", "C:\\path\\to\\watch-me\\skills\\watch-me\\scripts\\watch-me.bat", "mcp"]
+args = ["/d", "/c", "call", "C:\\path\\to\\watch-me\\skills\\watch-me-recorder\\scripts\\watch-me-recorder.bat", "mcp"]
 tool_timeout_sec = 60
 ```
 
 MCP waits default to 45 seconds. A 60-second tool budget leaves a margin.
 The separate server-start budget must not be used for downloading. On Linux/macOS
-use `command = "sh"` and arguments `["/absolute/root/skills/watch-me/scripts/watch-me.sh", "mcp"]`.
+use `command = "sh"` and arguments `["/absolute/root/skills/watch-me-recorder/scripts/watch-me-recorder.sh", "mcp"]`.
 Prepare uv/Python before connecting the server. A missing model/FFmpeg is reported
-by the start tool without disconnecting the server. See [agent recovery](../skills/watch-me/references/agent-startup.md).
+by the start tool without disconnecting the server. See [agent recovery](../skills/watch-me-recorder/references/agent-startup.md).
 
 Cursor, `~/.cursor/mcp.json` (or `.cursor/mcp.json` in a project -
 [MCP](https://cursor.com/docs/mcp)); `cursor-agent` reads the same files:
@@ -327,7 +327,7 @@ Cursor, `~/.cursor/mcp.json` (or `.cursor/mcp.json` in a project -
     "watch-me": {
       "type": "stdio",
       "command": "cmd.exe",
-      "args": ["/d", "/c", "call", "C:\\path\\to\\watch-me\\skills\\watch-me\\scripts\\watch-me.bat", "mcp"]
+      "args": ["/d", "/c", "call", "C:\\path\\to\\watch-me\\skills\\watch-me-recorder\\scripts\\watch-me-recorder.bat", "mcp"]
     }
   }
 }
@@ -370,7 +370,7 @@ configuration, so expose it only through a tunnel you control and close it after
 Editor and export:
 
 ```bash
-uv run watch-me edit                                   # opens the Watch Me Editor (newest recording selected)
+uv run watch-me edit                                   # opens the Watch Me Video Editor (newest recording selected)
 uv run watch-me export --session <id> --screen screen1 # MP4 + SRT without the window
 uv run watch-me edit --detach                          # agents: returns editor_session, then
 uv run watch-me wait --editor <editor_session>         # ... waits for the green Process button
@@ -399,9 +399,9 @@ WATCH_ME_INTEGRATION=1 uv run pytest tests/integration/test_recording.py tests/i
   code is missing or cannot start. uv is needed only to repair it - a prepared environment
   starts without uv on PATH, so `UV_MISSING` means both are missing. The result names the
   code folder as `root` (run `uv sync --locked --project <root>` there, see
-  [startup and recovery](../skills/watch-me/references/agent-startup.md)) and the guide as
+  [startup and recovery](../skills/watch-me-recorder/references/agent-startup.md)) and the guide as
   `help`. The `.sh` launcher also works from Git Bash on Windows.
-- `ROOT_NOT_FOUND` (launcher, exit code 21): `scripts/watch-me.cmd` / `.sh` found no
+- `ROOT_NOT_FOUND` (launcher, exit code 21): `scripts/watch-me-recorder.cmd` / `.sh` (or the editor's) found no
   `pyproject.toml` three levels above itself, nor behind the junction or symlink the skill
   is registered with. Register the skill again (`scripts/install-hosts`) or set
   `WATCH_ME_ROOT` to the Watch Me directory.
@@ -428,7 +428,7 @@ WATCH_ME_INTEGRATION=1 uv run pytest tests/integration/test_recording.py tests/i
   `watch-me sessions` to see it.
 - `WINDOW_EXITED`: the window process ended; read `ui.log` (window output, stays in
   `<recording_folder>/.work/<session>/`) and `recording.log` (next to the frames). What
-  was recorded is not lost: the next start of Watch Me or of the editor finishes the
+  was recorded is not lost: the next start of Watch Me Recorder or of the editor finishes the
   recording (manifest from the frames and the audio) and lists it in the editor. It is
   never handed to the agent by itself.
 - `PROCESSING_FAILED`: the recording could not be saved (a file was locked, the folder

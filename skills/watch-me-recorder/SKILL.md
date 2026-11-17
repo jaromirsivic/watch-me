@@ -1,9 +1,9 @@
 ---
-name: watch-me
-description: Record the user's narrated screen session (microphone, every screen, cursor position) with a small always-on-top window, transcribe it offline, then act on what the user said while looking at the matching screenshots. Use when the user says "Watch Me", "Start Watch Me", asks to record their screen while they talk, or wants to show and tell what to do on screen. Do not use for transcribing existing media files or for plain screenshots.
+name: watch-me-recorder
+description: Watch Me Recorder: record the user's narrated screen session (microphone, every screen, cursor position) with a small always-on-top window, transcribe it offline, then act on what the user said while looking at the matching screenshots. Use when the user says "Watch Me", "Start Watch Me" or "Watch Me Recorder", clearly asks to record or capture their screen, or wants to show and tell what to do on screen. Do not use for transcribing existing media files or for plain screenshots, and do not use for editing a recording (that is the watch-me-video-editor skill).
 ---
 
-# Watch Me
+# Watch Me Recorder
 
 The user talks while working; you receive a timed transcript plus screenshots of every
 screen with the cursor position, all on one timeline (milliseconds since the recording
@@ -14,15 +14,17 @@ editor (status `processed`); every other ending means: do nothing with it.
 
 ## 1. Locate and run the tool
 
-First call the absolute `scripts/watch-me.bat` (Windows) or
-`scripts/watch-me.sh` (Linux/macOS) with `run --detach`, or use the
-already connected local MCP tool. The `.cmd` alias remains compatible.
+First call the absolute `scripts/watch-me-recorder.bat` (Windows) or
+`scripts/watch-me-recorder.sh` (Linux/macOS) with `run --detach`, or use the
+already connected local MCP tool. The `.cmd` alias remains compatible. Always pass
+the arguments: without any the launcher opens the window by itself (for a person
+who double-clicks it).
 Do not run diagnostic/setup commands first. Startup checks the prepared Python,
 model and FFmpeg, does not install anything, and acknowledges the ready window.
 
 ```text
-<skill-dir>\scripts\watch-me.bat run --detach
-<skill-dir>/scripts/watch-me.sh run --detach
+<skill-dir>\scripts\watch-me-recorder.bat run --detach
+<skill-dir>/scripts/watch-me-recorder.sh run --detach
 ```
 
 Results are JSON (success on stdout, errors on stderr with a non-zero exit code).
@@ -46,7 +48,7 @@ way, or its result carries `start_note`, use the MCP route or tell the user.
 ## 2. Start a session
 
 1. Run `run --detach`. The result contains `session_id`. Tell the user in one line that
-   the Watch Me window is open and that recording starts when they press **Record**.
+   the Watch Me Recorder window is open and that recording starts when they press **Record**.
 2. If the error code is `ALREADY_RUNNING`, a window is already open: use the session id
    named in the message and continue with the wait loop.
 3. Do not run `run` without `--detach`: it blocks until the user finishes.
@@ -74,7 +76,7 @@ crops it; keep waiting), `processed` (the user pressed Process: act on it), `can
 (nothing to do: the window was closed without a recording, the editor was closed or
 ended without Process, or the editor could not be opened; a recording that exists is
 kept, `recording_dir` names it), `failed` (the window ended unexpectedly or the
-recording could not be saved; see `message`. The next start of Watch Me recovers
+recording could not be saved; see `message`. The next start of Watch Me Recorder recovers
 such a recording into the editor's list, but it is not yours to act on). For
 `cancelled` and `failed` tell the user in one line what happened and stop.
 

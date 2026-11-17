@@ -1,11 +1,11 @@
 ---
-name: watch-me-editor
-description: Open the Watch Me Editor, a simple cutting room for recordings made with Watch Me (list of recordings, preview with subtitles, timeline per screen, crop start/end, Render to MP4 + SRT at 24 fps), or export a recording to MP4 without the window. Use when the user says "Watch Me Editor", "Open Watch Me Editor" or "Edit Watch Me", asks to edit, trim, cut or export a Watch Me recording, or wants an MP4 video of what they recorded. Do not use for starting a recording (that is the watch-me skill) or for editing other video files.
+name: watch-me-video-editor
+description: Watch Me Video Editor: open a simple cutting room for recordings made with Watch Me Recorder (list of recordings, preview with subtitles, timeline per screen, crop start/end, Render to MP4 + SRT at 24 fps), or export a recording to MP4 without the window. Use when the user says "Edit Watch Me", "Watch Me Video Editor" or "Open Watch Me Video Editor", clearly asks to edit, trim, cut or export a screen recording they made, or wants an MP4 video of what they recorded. Do not use for starting a recording (that is the watch-me-recorder skill) or for editing other video files.
 ---
 
-# Watch Me Editor
+# Watch Me Video Editor
 
-Recordings made with Watch Me (screens as frames, microphone audio and, on
+Recordings made with Watch Me Recorder (screens as frames, microphone audio and, on
 Windows, the computer's sound, transcript) can
 be turned into an MP4 video: the editor shows every recording still stored in the
 recording folder, plays it back with subtitles, lets the user crop the start and the
@@ -14,15 +14,17 @@ resolution) with an SRT subtitle file next to it.
 
 ## 1. Locate and run the tool
 
-First call the absolute `scripts/watch-me-editor.bat` (Windows) or
-`scripts/watch-me-editor.sh` (Linux/macOS) with `edit --detach`, or use the
-already connected local MCP tool. The `.cmd` alias remains compatible.
+First call the absolute `scripts/watch-me-video-editor.bat` (Windows) or
+`scripts/watch-me-video-editor.sh` (Linux/macOS) with `edit --detach`, or use the
+already connected local MCP tool. The `.cmd` alias remains compatible. Always pass
+the arguments: without any the launcher opens the window by itself (for a person
+who double-clicks it).
 Do not run diagnostic/setup commands first. Startup checks the prepared Python,
 model and FFmpeg, does not install anything, and acknowledges the ready window.
 
 ```text
-<skill-dir>\scripts\watch-me-editor.bat edit --detach
-<skill-dir>/scripts/watch-me-editor.sh edit --detach
+<skill-dir>\scripts\watch-me-video-editor.bat edit --detach
+<skill-dir>/scripts/watch-me-video-editor.sh edit --detach
 ```
 
 Results are JSON (success on stdout, errors on stderr with a non-zero exit code).
@@ -67,7 +69,7 @@ For host-specific handling see [startup and recovery](references/agent-startup.m
    `crop` `{start_ms, end_ms}` and **`instructions`** (the user's master instructions
    for the whole recording, `""` when none - read them first, they frame everything
    said in the recording and win over single sentences of the transcript). Then work
-   text first, exactly as in section 4 of the watch-me skill: run
+   text first, exactly as in section 4 of the watch-me-recorder skill: run
    `timeline --session <session_id>` (the cropped range as one text timeline: speech
    with the cursor position, finished drawings with geometry and frame times, copied
    text, cursor moves between screens, zoom, keypoints; it is in the `timeline` field
@@ -81,7 +83,7 @@ For host-specific handling see [startup and recovery](references/agent-startup.m
    time of a shape that covers what you need to read). The crop applies to every screen.
    Event `closed`: the user closed the editor without Process; say so in one line and
    do nothing else.
-4. `NO_RECORDINGS` means there is nothing to edit yet; suggest recording with Watch Me.
+4. `NO_RECORDINGS` means there is nothing to edit yet; suggest recording with Watch Me Recorder.
 
 What the user can do in the window: select a recording on the left; press Space to
 play (icon transport buttons under the preview: go to In, step back, play/pause, stop,

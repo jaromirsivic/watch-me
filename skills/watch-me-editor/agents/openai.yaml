@@ -1,7 +1,0 @@
-interface:
-  display_name: "Watch Me Editor"
-  short_description: "Edit a Watch Me recording: crop and render it to MP4 with subtitles"
-  default_prompt: "Use $watch-me-editor to open the Watch Me Editor for my latest recording."
-
-policy:
-  allow_implicit_invocation: true

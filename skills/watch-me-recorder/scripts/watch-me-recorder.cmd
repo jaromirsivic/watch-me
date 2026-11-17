@@ -1,6 +1,6 @@
 @echo off
 setlocal
-rem Watch Me launcher (Windows). Runs the plugin through uv from the repository root.
+rem Watch Me Recorder launcher (Windows). Runs the plugin through uv from the repository root.
 rem The root is WATCH_ME_ROOT, else three levels above this script, else the same three
 rem levels behind the junction or directory symlink the skill is registered with (the host
 rem hands the agent the link path). "dir /AL" prints the link target; PowerShell is the fallback.
@@ -22,5 +22,8 @@ if not defined WM_ROOT (
 
 rem The recovery guide of this skill, named in environment errors (the path the host gave).
 for %%I in ("%~dp0..\references\agent-startup.md") do set "WM_HELP=%%~fI"
-call "%WM_ROOT%\scripts\launch.bat" %*
+rem Without arguments (a double click) the launcher opens its own window.
+rem Two one-line ifs, no block: an argument may hold a closing parenthesis.
+if "%~1"=="" call "%WM_ROOT%\scripts\launch.bat" run --detach
+if not "%~1"=="" call "%WM_ROOT%\scripts\launch.bat" %*
 exit /b %ERRORLEVEL%

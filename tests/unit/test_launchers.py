@@ -18,7 +18,8 @@ from pathlib import Path
 import pytest
 
 SKILLS_DIR = Path(__file__).resolve().parents[2] / "skills"
-SKILLS = ("watch-me", "watch-me-editor")
+SKILLS = ("watch-me-recorder", "watch-me-video-editor")
+DEFAULT_COMMAND = {"watch-me-recorder": "run", "watch-me-video-editor": "edit"}  # no arguments
 WINDOWS = sys.platform == "win32"
 EXT = ".cmd" if WINDOWS else ".sh"
 MARKER = "launcher-test-root-marker"
@@ -92,7 +93,7 @@ def run(tmp_path: Path):
     elsewhere = tmp_path / "elsewhere"
     elsewhere.mkdir()
 
-    def _run(launcher: Path, *, cwd: Path = elsewhere, root: Path | None = None):
+    def _run(launcher: Path, *, cwd: Path = elsewhere, root: Path | None = None, args: bool = True):
         env = dict(os.environ)
         env.pop("WATCH_ME_ROOT", None)
         if root is not None:
@@ -101,9 +102,10 @@ def run(tmp_path: Path):
         if WINDOWS:
             # /s with one pair of outer quotes: the only form cmd.exe parses reliably.
             comspec = os.environ.get("ComSpec", "cmd.exe")
-            command: str | list[str] = f'"{comspec}" /d /s /c ""{launcher}" version "a b""'
+            tail = ' version "a b"' if args else ""
+            command: str | list[str] = f'"{comspec}" /d /s /c ""{launcher}"{tail}"'
         else:
-            command = ["sh", str(launcher), "version", "a b"]
+            command = ["sh", str(launcher)] + (["version", "a b"] if args else [])
         return subprocess.run(
             command,
             cwd=cwd,
@@ -121,13 +123,36 @@ def _assert_ran_uv_in_root(proc: subprocess.CompletedProcess) -> None:
     assert proc.returncode == STUB_EXIT, proc.stderr  # uv's exit code is passed on
     lines = proc.stdout.splitlines()
     assert "ROOT_OK" in lines, (proc.stdout, proc.stderr)
-    assert EXPECTED_ARGS in lines
+    assert lines.count(EXPECTED_ARGS) == 1  # the arguments as given, the command run once
 
 
 @pytest.mark.parametrize("skill", SKILLS)
 def test_real_path_from_a_foreign_cwd(tmp_path: Path, run, skill: str):
     root = _root(tmp_path / "repo", skill, marker=True)
     _assert_ran_uv_in_root(run(root / "skills" / skill / "scripts" / f"{skill}{EXT}"))
+
+
+@pytest.mark.parametrize("skill", SKILLS)
+def test_no_arguments_open_the_window_of_the_skill(tmp_path: Path, run, skill: str):
+    """A person double-clicks the launcher: it opens its own window (``run --detach`` or
+    ``edit --detach``) and passes on what that start returned, once."""
+    root = _root(tmp_path / "repo", skill, marker=True)
+    proc = run(root / "skills" / skill / "scripts" / f"{skill}{EXT}", args=False)
+    assert proc.returncode == STUB_EXIT, proc.stderr
+    lines = proc.stdout.splitlines()
+    command = DEFAULT_COMMAND[skill]
+    expected = (
+        f"ARGS=watch-me {command} --detach" if WINDOWS else f"ARGS=watch-me {command} [--detach]"
+    )
+    assert "ROOT_OK" in lines, (proc.stdout, proc.stderr)
+    assert lines.count(expected) == 1, proc.stdout
+
+
+@pytest.mark.parametrize("skill", SKILLS)
+def test_bat_alias_calls_the_cmd_next_to_it(skill: str):
+    text = (SKILLS_DIR / skill / "scripts" / f"{skill}.bat").read_text(encoding="ascii")
+    assert f'call "%~dp0{skill}.cmd" %*' in text
+    assert (SKILLS_DIR / skill / "scripts" / f"{skill}.cmd").is_file()
 
 
 @pytest.mark.parametrize("skill", SKILLS)
@@ -180,9 +205,9 @@ def test_watch_me_root_without_a_project_is_not_used(tmp_path: Path, run, skill:
 
 
 @pytest.mark.parametrize("ext", [".cmd", ".sh"])
-def test_launchers_are_lf_and_differ_only_in_the_title_comment(ext: str):
+def test_launchers_are_lf_and_differ_only_in_title_and_default_command(ext: str):
     """LF endings (a CRLF .sh does not run; the .cmd files avoid labels so LF is safe),
-    and one text for both skills."""
+    and one text for both skills except the title and what no arguments start."""
     first, second = (
         (SKILLS_DIR / skill / "scripts" / f"{skill}{ext}").read_bytes() for skill in SKILLS
     )
@@ -190,5 +215,8 @@ def test_launchers_are_lf_and_differ_only_in_the_title_comment(ext: str):
     differing = [
         (a, b) for a, b in zip(first.splitlines(), second.splitlines(), strict=True) if a != b
     ]
-    assert len(differing) == 1
-    assert b"launcher" in differing[0][0] and b"Editor launcher" in differing[0][1]
+    assert len(differing) == 2
+    title, default = differing
+    assert b"Recorder launcher" in title[0] and b"Video Editor launcher" in title[1]
+    assert default[0].endswith(b"run --detach") and default[1].endswith(b"edit --detach")
+    assert default[0].replace(b"run --detach", b"") == default[1].replace(b"edit --detach", b"")

@@ -1,7 +1,7 @@
 #requires -Version 5.1
 <#
 .SYNOPSIS
-Register the Watch Me skills (watch-me, watch-me-editor) with Claude Code, Codex and/or
+Register the Watch Me skills (watch-me-recorder, watch-me-video-editor) with Claude Code, Codex and/or
 Cursor on Windows (directory junctions, no administrator rights needed).
 .DESCRIPTION
 Where each host looks for user skills (docs/installation.md, section 3, cites the pages):
@@ -25,7 +25,7 @@ param(
 )
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
-$skillNames = @('watch-me', 'watch-me-editor')
+$skillNames = @('watch-me-recorder', 'watch-me-video-editor')
 foreach ($name in $skillNames) {
     if (-not (Test-Path -LiteralPath (Join-Path $root "skills\$name\SKILL.md"))) { throw "Skill directory not found: skills\$name" }
 }
@@ -160,7 +160,7 @@ foreach ($name in $skillNames) {
 }
 
 if (-not $Remove) {
-    $mcpArgs = @('/d', '/c', 'call', (Join-Path $root 'skills/watch-me/scripts/watch-me.bat'), 'mcp')
+    $mcpArgs = @('/d', '/c', 'call', (Join-Path $root 'skills/watch-me-recorder/scripts/watch-me-recorder.bat'), 'mcp')
     Write-Host ''
     Write-Host 'MCP server (optional; only for a host that cannot open the window from a command, see docs/installation.md):'
     if ($Claude) {

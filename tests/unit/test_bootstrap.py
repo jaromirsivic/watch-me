@@ -69,7 +69,7 @@ def test_real_bat_never_runs_uv_and_preserves_arguments(tmp_path):
     (stub / "uv.cmd").write_text("@echo off\nexit /b 99\n")
     system32 = Path(os.environ["SystemRoot"]) / "System32"
     powershell = system32 / "WindowsPowerShell" / "v1.0"
-    guide = str(root / "skills" / "watch-me" / "references" / "agent-startup.md")
+    guide = str(root / "skills" / "watch-me-recorder" / "references" / "agent-startup.md")
     with_uv = os.pathsep.join(map(str, (stub, system32, powershell)))
     without_uv = os.pathsep.join(map(str, (system32, powershell)))
     env = dict(os.environ, WM_ROOT=str(root), WM_HELP=guide, PATH=with_uv)
@@ -115,7 +115,7 @@ def _posix_shell() -> str:
 def test_real_sh_starts_without_uv_and_names_the_root(tmp_path):
     shell = _posix_shell()
     root, launcher = _stand_in_root(tmp_path, "launch.sh")
-    guide = str(root / "skills" / "watch-me" / "references" / "agent-startup.md")
+    guide = str(root / "skills" / "watch-me-recorder" / "references" / "agent-startup.md")
     uv_dirs = {str(Path(found).parent) for found in [shutil.which("uv")] if found}
     without_uv = os.pathsep.join(
         entry for entry in os.environ["PATH"].split(os.pathsep) if entry not in uv_dirs

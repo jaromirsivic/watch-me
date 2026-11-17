@@ -1,5 +1,5 @@
 #!/usr/bin/env sh
-# Watch Me launcher (Linux, macOS). Runs the plugin through uv from the repository root.
+# Watch Me Video Editor launcher (Linux, macOS). Runs the plugin through uv from the repository root.
 # The root is WATCH_ME_ROOT, else three levels above this script, else the same three
 # levels behind the symlink the skill is registered with (the host hands the agent the
 # link path): first the logical path (-L), then the physical one (-P). One level per cd,
@@ -26,4 +26,8 @@ fi
 # The recovery guide of this skill, named in environment errors (the path the host gave).
 WM_HELP=$(CDPATH=; cd -- "$WM_HERE/.." 2>/dev/null && pwd)/references/agent-startup.md
 export WM_ROOT WM_HELP
+# Without arguments (started by hand) the launcher opens its own window.
+if [ "$#" -eq 0 ]; then
+  set -- edit --detach
+fi
 exec sh "$WM_ROOT/scripts/launch.sh" "$@"
