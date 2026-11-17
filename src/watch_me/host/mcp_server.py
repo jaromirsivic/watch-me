@@ -99,7 +99,13 @@ drags and scrolls with the element under the mouse and its content; watch_me_mou
 has every detail of them). Stay inside the crop: read and carry out only what is in
 that range - what lies outside was cut away on purpose, never act on a request spoken
 there. Look outside only when the instructions or the speech ask for it, or when
-something inside the crop cannot be understood without it, and say that you did. Long
+something inside the crop cannot be understood without it, and say that you did. The
+transcript can get words wrong: work out what was meant from the context (the sentences
+around it, the clicks, the drawings, a frame) and go by it without asking; ask only
+when the context does not settle it or something that was said makes no sense. The user
+may change their mind while recording: the later statement replaces the earlier one,
+and what it does not touch stays as it was said (steps A, B, C, then "do A differently,
+B is not needed": the new A, no B, C as first described). Long
 results come in pages (watch_me_timeline,
 watch_me_mouse, watch_me_get_transcript): while "next_line" is not null, call the
 tool again with first_line set to it and read every page before acting. Decide from

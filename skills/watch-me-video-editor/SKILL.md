@@ -80,7 +80,10 @@ For host-specific handling see [startup and recovery](references/agent-startup.m
    `frames --session <session_id> --at <ms> --screen <screenId> --no-drawings` (for a
    shape the `after` time of its `DRAW` line). When these frames are not enough, fetch
    more and look again as step 5 of that section describes (for example the `before`
-   time of a shape that covers what you need to read). The crop applies to every screen.
+   time of a shape that covers what you need to read). The rules of that section for
+   misheard words (context first, then ask) and for a user who changes their mind (the
+   later statement replaces the earlier one) apply here too. The crop applies to every
+   screen.
    Event `closed`: the user closed the editor without Process; say so in one line and
    do nothing else.
 4. `NO_RECORDINGS` means there is nothing to edit yet; suggest recording with Watch Me Recorder.

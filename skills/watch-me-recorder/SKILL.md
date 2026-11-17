@@ -192,8 +192,18 @@ One event per line, ordered by time in milliseconds since the recording started:
 
 - `SAY` is a transcript segment with the cursor screen and position at its start and
   end. The text keeps the spoken language; do not translate or clean it up silently,
-  quote it when you need to confirm what was said. "Here", "this" and "that" usually
-  mean the cursor position or a shape drawn around that time.
+  quote it when you need to confirm what was said. The transcript is made by a
+  speech-to-text model and can get words wrong: a word that sounds alike, a name, a
+  number, a term from another language, now and then a whole sentence that makes no
+  sense. Work out what was meant from the context: the sentences around it, the
+  instructions, what the user clicked, drew or pointed at around that time, a copied
+  text, and a frame when the text is not enough. When the context makes it clear, go by
+  it without asking the user, and say in your answer how you read a word if it changed
+  what you did. Ask only when the context does not settle it: the meaning stays
+  ambiguous, parts of the recording contradict each other, or something that was said
+  makes no sense - then ask, quoting the words and the time stamp (unless the
+  instructions say not to ask). "Here", "this" and "that" usually mean the cursor
+  position or a shape drawn around that time.
 - `SAY [lower track]` - the editor has two subtitle tracks; the user may move a
   subtitle to the lower one, mostly to make room while rearranging subtitles (it is
   usually empty, and then nothing in the timeline mentions tracks). Each subtitle stays
@@ -311,11 +321,23 @@ rest point has `kind: "rest"`; search it for `"t": <ms>`), with `--out` and
 when `mouse_inline` is true.
 
 **Step 3 - pick the moments that need a picture.** Read the whole timeline once, work
-out what the user asks for and list the requests in order. For each, decide whether the
-text already answers it: a request without a reference to the screen, a copied text, or
-a place you can name from the cursor or shape coordinates in code you can read needs no
-image. A picture is needed when you must see what is at a place ("this button", "the
-dialog here", the look of something). Skip the rest.
+out what the user asks for and list the requests in order.
+
+The user may change their mind while recording, more than once: the later statement
+replaces the earlier one. Settle what the user wants in the end before you list the
+requests. For example, the user describes steps A, B and C and then says that A should
+be done differently and that B is therefore not needed: do the new A, leave B out and
+do C as it was first described. What a later statement does not touch stays as it was
+said. Only statements inside the crop count. When it is not clear whether a later
+sentence replaces an earlier request or only adds to it, treat it like a misheard word:
+context first, then ask. Say in your answer which request you left out or changed
+because of it.
+
+For each request that remains, decide whether the text already answers it: a request
+without a reference to the screen, a copied text, or a place you can name from the
+cursor or shape coordinates in code you can read needs no image. A picture is needed
+when you must see what is at a place ("this button", "the dialog here", the look of
+something). Skip the rest.
 
 **Step 4 - fetch only those frames.** One frame per moment, on the screen it concerns:
 
@@ -380,10 +402,12 @@ crop. You rarely need `describe` next to `timeline`.
 
 ## 5. Act
 
-Apply the `instructions` to the whole task, then carry out the requests the user spoke,
-in order, combining the words with the shapes, cursor positions and the few frames you
-fetched. When speech and image still disagree or something stays unclear after you
-looked again, ask, citing the time stamp - unless the instructions say not to ask.
+Apply the `instructions` to the whole task, then carry out the requests that remain
+after the user's changes of mind (step 3), in order, combining the words with the
+shapes, cursor positions and the few frames you fetched. When speech and image still
+disagree, words make no sense and the context does not settle them, or something stays
+unclear after you looked again, ask, citing the time stamp - unless the instructions
+say not to ask.
 When the instructions and the speech disagree, the instructions win; say so.
 Mention the detected language if it is unexpected. Keep the recording folder untouched
 (the user may want it later).
@@ -432,4 +456,5 @@ Mention the detected language if it is unexpected. Keep the recording folder unt
 
 Windows, Linux X11 and macOS are supported; Wayland is not. On macOS the host application needs Screen Recording and Microphone permission. Transcription uses
 the multilingual Whisper large-v3-turbo model (5-bit) on the CPU: expect mistakes in names, numbers and
-punctuation, approximate segment times, and no speaker separation.
+punctuation and now and then in whole words (see `SAY` in section 4), approximate
+segment times, and no speaker separation.
