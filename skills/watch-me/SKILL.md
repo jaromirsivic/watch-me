@@ -141,8 +141,15 @@ the user typed none; then the speech alone is your brief.
 ```
 
 `crop` is the part of the recording the user wants you to act on (the whole recording
-unless they cropped it in the editor); `timeline` covers exactly that range
-(`--start-ms`/`--end-ms` or `--all` change it). Where the text is:
+unless they cropped it in the editor). Stay inside it: read the speech, the events and
+the frames of that range only, and carry out only what is said there. What lies outside
+the crop was cut away on purpose - never act on a request spoken there. Look outside
+only when the instructions or the speech ask for it, or when something inside the crop
+cannot be understood without it (a sentence that begins before the crop, a shape drawn
+before it), and say in your answer that you did. `timeline` covers exactly the crop
+(`--start-ms`/`--end-ms` or `--all` change it - mind the rule above before you use
+them; `range_note` in the result then says that the range leaves the crop). Where the
+text is:
 
 - `timeline_inline` true (a short recording, up to 12000 characters): in the `timeline`
   field.
@@ -296,7 +303,7 @@ the drag path - is in:
 ```
 
 (`--at` is the time a mouse line starts with.) Without `--at` every action and rest
-point of the range is written to the file `mouse_file` (JSON Lines in time order, a
+point of the range (the crop, as for `timeline`) is written to the file `mouse_file` (JSON Lines in time order, a
 rest point has `kind: "rest"`; search it for `"t": <ms>`), with `--out` and
 `--inline-chars` as for `timeline`; `actions` and `rest_points` are in the result only
 when `mouse_inline` is true.
@@ -318,7 +325,9 @@ dialog here", the look of something). Skip the rest.
   add the `before` time only when the shape hides what you need to see. For speech
   without a shape use a moment inside the segment (its start, or the middle of a long
   one) and the cursor screen the `SAY` line names (or `--screen cursor`).
-- The frame returned is the latest one at or before `--at`. Each entry has `image`
+- The frame returned is the latest one at or before `--at`. `--at` takes any time of
+  the recording: keep it inside `crop` (`outside_crop` true in the result says that
+  you left it). Each entry has `image`
   (open it with your image viewing tool), `cursor` `{screen, x, y}` (pixels
   of that image), `drawing_now`, `zoom`, `background`, `grid` and `clipboard`; `--no-drawings` replaces the
   repeated list of shapes (already in the timeline) by `drawing_ids`. Without it each
@@ -331,6 +340,17 @@ dialog here", the look of something). Skip the rest.
   that would get too long is shortened: `truncated` true, `truncated_note` says what
   was left out (shapes, a long `clipboard`) - the whole result is then in the file
   `frames_file` (JSON; read it with your file tool).
+
+**Step 5 - look again when you need to.** If the frames of the first round are not
+enough, fetch more and go through the material again - a second round. This is your
+call: whenever you find that you need more information to understand what the user
+means, take it. For example, a drawn shape may cover what you need to read (take the
+`before` time of its `DRAW` line: the screen before the drawing), or a frame may show
+the moment just before a menu opened (take a later one).
+
+If the frames still do not settle it, ask the user, citing the time stamp - unless the
+instructions say not to ask: they carry the most weight, so then go by your best
+reading and say what you assumed.
 
 Frames are named `<seconds>_<millis>_<screenId>.<png|jpg>` in `frames_dir`; what every
 tick showed (cursor, shapes, clipboard) is one line of `frames_info/index.jsonl` in
@@ -352,15 +372,17 @@ MP4 holds only the tracks that were on, see `archive/tracks.json`; no such file:
 paths. `describe --session <session_id>` returns the paths, the
 manifest (screens, capture interval, keypoints), `instructions` and, only when it is
 short, the transcript of the cropped range (`transcript_in_range`; otherwise
-`transcript_in_range_note`). The whole transcript is the file `transcript_txt`. You
-rarely need `describe` next to `timeline`.
+`transcript_in_range_note`). The whole transcript is the file `transcript_txt`; it
+also holds what was said outside the crop, while the timeline is the transcript of the
+crop. You rarely need `describe` next to `timeline`.
 
 ## 5. Act
 
 Apply the `instructions` to the whole task, then carry out the requests the user spoke,
 in order, combining the words with the shapes, cursor positions and the few frames you
-fetched. When speech and image disagree or something is unclear, ask, citing the time
-stamp. When the instructions and the speech disagree, the instructions win; say so.
+fetched. When speech and image still disagree or something stays unclear after you
+looked again, ask, citing the time stamp - unless the instructions say not to ask.
+When the instructions and the speech disagree, the instructions win; say so.
 Mention the detected language if it is unexpected. Keep the recording folder untouched
 (the user may want it later).
 

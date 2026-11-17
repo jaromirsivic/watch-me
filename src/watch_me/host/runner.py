@@ -617,6 +617,32 @@ class FrameIndex:
         return [self._ref(n) for n in names if start_ms <= n.time_ms <= end_ms]
 
 
+def crop_warning(paths: SessionPaths, base: Path, at_ms: int) -> dict[str, Any]:
+    """Keys that flag ``at_ms`` outside the user's crop; empty inside it or when the
+    length of the recording is unknown (a missing or unreadable manifest)."""
+    duration_ms = 0
+    try:
+        manifest = json.loads(paths.manifest_path(base).read_text(encoding="utf-8"))
+        if isinstance(manifest, dict):
+            duration_ms = int(manifest.get("recorded_duration_ms") or 0)
+    except (OSError, ValueError, TypeError):
+        duration_ms = 0
+    if duration_ms <= 0:
+        return {}
+    crop = read_crop(paths.crop_path(base), duration_ms)
+    t = min(max(at_ms, 0), duration_ms)
+    if crop.start_ms <= t <= crop.end_ms:
+        return {}
+    return {
+        "outside_crop": True,
+        "crop": crop.to_dict(),
+        "crop_note": (
+            f"at_ms lies outside the user's crop ({crop.start_ms}-{crop.end_ms} ms): what is "
+            "outside was cut away on purpose; do not act on requests made there."
+        ),
+    }
+
+
 def frames_at(
     paths: SessionPaths,
     at_ms: int,
@@ -699,6 +725,7 @@ def frames_at(
     archive = archive_info(paths, base)
     if archive is not None:
         result["archive"] = archive
+    result.update(crop_warning(paths, base, at_ms))
     if shrink:
         notes += _shrink_frames(result)
     result["truncated"] = bool(notes)
@@ -851,6 +878,7 @@ __all__ = [
     "LaunchInfo",
     "SessionError",
     "active_session",
+    "crop_warning",
     "describe_recording",
     "frames_at",
     "launch_control_window",

@@ -63,6 +63,7 @@ from watch_me.host.runner import (
     FrameRef,
     SessionError,
     active_session,
+    crop_warning,
     describe_recording,
     frames_at,
     launch_control_window,
@@ -95,12 +96,21 @@ status is "processed", read the "instructions" first, then call watch_me_timelin
 cropped range as one text timeline (speech with the cursor position, finished drawings
 with their geometry and times, copied text, keypoints and - when recorded - the clicks,
 drags and scrolls with the element under the mouse and its content; watch_me_mouse
-has every detail of them). Long results come in pages (watch_me_timeline,
+has every detail of them). Stay inside the crop: read and carry out only what is in
+that range - what lies outside was cut away on purpose, never act on a request spoken
+there. Look outside only when the instructions or the speech ask for it, or when
+something inside the crop cannot be understood without it, and say that you did. Long
+results come in pages (watch_me_timeline,
 watch_me_mouse, watch_me_get_transcript): while "next_line" is not null, call the
 tool again with first_line set to it and read every page before acting. Decide from
 that text which
 moments really need a picture and only then call watch_me_get_frame for those (one
-frame each, at the times the timeline names); watch_me_describe and
+frame each, at the times the timeline names). When these frames are not enough, fetch
+more and look again - your call, whenever you need more information (for example the
+"before" time of a DRAW line when the shape covers what you need to read). If the
+frames still do not settle it, ask the user, citing the time - unless the instructions
+say not to ask: then go by your best reading and say what you assumed.
+watch_me_describe and
 watch_me_get_transcript return paths and the plain transcript. Act on a recording only
 when the status is "processed" (the user pressed Process). "cancelled" and "failed" are
 final too and mean: do nothing with it, tell the user what happened (a recording that
@@ -549,6 +559,9 @@ def tool_get_frame(
         "scale": scale,
         "time_unit": "ms since recording start",
     }
+    # Outside the user's crop: say so (a frame chosen by path is judged by its own time).
+    moment = at_ms if at_ms is not None else info["time_ms"]
+    metadata.update(crop_warning(paths, paths.current_dir, moment))
     return [Image(data=data, format=fmt), metadata]
 
 
@@ -734,7 +747,9 @@ def create_server(config_file: Path | None = None) -> MCPServer:
         first_line: int = 1,
         max_chars: int = PAGE_DEFAULT_CHARS,
     ) -> dict[str, Any]:
-        """The transcript of the whole recording: format "text" returns timestamped
+        """The transcript of the whole recording, also of what lies outside the crop
+        (prefer watch_me_timeline, the transcript of the crop): format "text" returns
+        timestamped
         lines ("[lower track]" marks a subtitle the user moved to the second track),
         "json" returns segments with start_ms, end_ms, text and track (1 for the lower
         track, absent for the upper one). Paged: at most
@@ -758,7 +773,9 @@ def create_server(config_file: Path | None = None) -> MCPServer:
         DOUBLE-CLICK, DRAG, SCROLL, ZOOM-SCROLL, GESTURE with the element under the mouse
         and its content (and "over ..." in SAY: what the pointer rested on). Times are
         ms; pass them to watch_me_get_frame only where the words and coordinates are
-        not enough. start_ms / end_ms override the crop; mouse is auto, full, summary
+        not enough. start_ms / end_ms override the crop - only when the crop is not
+        enough (range_note then says that the range leaves it); mouse is auto, full,
+        summary
         (scrolls merged per 10 s) or off. Paged: "timeline" holds whole lines from
         first_line (1-based), at most max_chars characters (1000..100000, default
         20000); timeline_lines is the total. While next_line is not null the timeline
@@ -812,6 +829,7 @@ def create_server(config_file: Path | None = None) -> MCPServer:
     ) -> list[Any] | dict[str, Any]:
         """One screenshot as an image plus its metadata (time_ms, screen, cursor, scale).
         Select it by the absolute path from watch_me_list_frames or by at_ms and screen.
+        Keep at_ms inside the crop ("outside_crop" true in the metadata: you left it).
         Images wider than max_width are downscaled; divide cursor coordinates by "scale"
         (or use "cursor_in_image") to find the cursor in the returned image."""
         return tool_get_frame(session_id, path, at_ms, screen, max_width, config_file)

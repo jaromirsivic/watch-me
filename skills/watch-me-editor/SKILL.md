@@ -72,10 +72,13 @@ For host-specific handling see [startup and recovery](references/agent-startup.m
    with the cursor position, finished drawings with geometry and frame times, copied
    text, cursor moves between screens, zoom, keypoints; it is in the `timeline` field
    when `timeline_inline` is true, otherwise read the whole file `timeline_file` with
-   your file reading tool - `--out <path>` writes it into your workspace), decide from
-   it which moments really need a picture and fetch only those with
+   your file reading tool - `--out <path>` writes it into your workspace). Stay inside
+   that range: what lies outside the crop was cut away on purpose. Decide from the
+   timeline which moments really need a picture and fetch only those with
    `frames --session <session_id> --at <ms> --screen <screenId> --no-drawings` (for a
-   shape the `after` time of its `DRAW` line). The crop applies to every screen.
+   shape the `after` time of its `DRAW` line). When these frames are not enough, fetch
+   more and look again as step 5 of that section describes (for example the `before`
+   time of a shape that covers what you need to read). The crop applies to every screen.
    Event `closed`: the user closed the editor without Process; say so in one line and
    do nothing else.
 4. `NO_RECORDINGS` means there is nothing to edit yet; suggest recording with Watch Me.

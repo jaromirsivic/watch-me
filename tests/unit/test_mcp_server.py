@@ -12,6 +12,7 @@ from PIL import Image as PilImage
 from tick_fixtures import IndexBuilder
 
 from watch_me.core.config import Config
+from watch_me.core.crop import Crop, write_crop
 from watch_me.core.manifest import Manifest, write_manifest
 from watch_me.core.naming import frame_filename
 from watch_me.core.screens import RawScreen, assign_screen_ids
@@ -362,6 +363,29 @@ def test_get_frame_by_at_ms_downscales(recording: SessionPaths, config_file: Pat
     assert meta["scale"] == 2.0 and meta["cursor_in_image"] == {"x": 20, "y": 5}
     assert (meta["original_width"], meta["width"]) == (64, 32)
     assert result[0].to_image_content().mime_type == "image/png"
+
+
+def test_frames_and_timeline_say_when_they_leave_the_crop(
+    recording: SessionPaths, config_file: Path
+):
+    write_crop(recording.crop_path(recording.current_dir), Crop(250, 600))
+    sid = recording.session_id
+    inside = mcp_server.tool_get_frame(sid, at_ms=500, config_file=config_file)[1]
+    assert "outside_crop" not in inside and "crop_note" not in inside
+    outside = mcp_server.tool_get_frame(sid, at_ms=800, config_file=config_file)[1]
+    assert outside["outside_crop"] is True and outside["crop"] == {"start_ms": 250, "end_ms": 600}
+    by_path = mcp_server.tool_get_frame(
+        sid,
+        path=str(recording.frames_dir() / frame_filename(0, "screen1", "png")),
+        config_file=config_file,
+    )[1]
+    assert by_path["outside_crop"] is True  # judged by the frame's own time
+    listed = mcp_server.tool_list_frames(sid, 0, config_file=config_file)
+    assert listed["outside_crop"] is True
+
+    assert "range_note" not in mcp_server.tool_timeline(sid, config_file=config_file)
+    whole = mcp_server.tool_timeline(sid, 0, 900, config_file=config_file)
+    assert "(250-600)" in whole["range_note"]
 
 
 def test_get_frame_by_path_keeps_small_images(recording: SessionPaths, config_file: Path):

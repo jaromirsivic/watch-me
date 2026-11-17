@@ -172,6 +172,32 @@ def test_timeline_follows_the_crop_and_explicit_ranges(tmp_path: Path):
         build_timeline(paths, 3000, 1000)
 
 
+def test_timeline_notes_a_range_that_leaves_the_crop(tmp_path: Path):
+    paths = make_recording(tmp_path / "cropped", {})
+    write_crop(paths.crop_path(paths.current_dir), Crop(2000, 4000))
+    assert "range_note" not in build_timeline(paths)
+    note = build_timeline(paths, 0, 10**12)["range_note"]
+    assert "0-6000" in note and "(2000-4000)" in note
+
+    uncropped = make_recording(tmp_path / "whole", {})
+    assert "range_note" not in build_timeline(uncropped, 0, 10**12)
+
+
+def test_frames_flag_a_moment_outside_the_crop(tmp_path: Path):
+    paths = make_recording(tmp_path / "cropped", {})
+    write_crop(paths.crop_path(paths.current_dir), Crop(2000, 4000))
+    inside = frames_at(paths, 3000)
+    assert not {"outside_crop", "crop", "crop_note"} & inside.keys()
+    for at_ms in (1000, 5000):
+        outside = frames_at(paths, at_ms)
+        assert outside["outside_crop"] is True
+        assert outside["crop"] == {"start_ms": 2000, "end_ms": 4000}
+        assert "2000-4000" in outside["crop_note"]
+
+    uncropped = make_recording(tmp_path / "whole", {})
+    assert "outside_crop" not in frames_at(uncropped, 99_000)
+
+
 def test_timeline_needs_the_tick_index(tmp_path: Path):
     paths = make_recording(tmp_path, {})
     index_path(paths.frames_info_dir(paths.current_dir)).unlink()

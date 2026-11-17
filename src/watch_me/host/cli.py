@@ -1047,7 +1047,11 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--session")
     p.add_argument("--start-ms", type=int, help="start of the range (default: the crop start)")
     p.add_argument("--end-ms", type=int, help="end of the range (default: the crop end)")
-    p.add_argument("--all", action="store_true", help="the whole recording, ignoring the crop")
+    p.add_argument(
+        "--all",
+        action="store_true",
+        help="the whole recording, ignoring the crop (only when the crop is not enough)",
+    )
     p.add_argument(
         "--mouse",
         choices=["auto", "full", "summary", "off"],
@@ -1069,7 +1073,11 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--at", type=int, help="only the action at this time (a timeline line's ms)")
     p.add_argument("--start-ms", type=int, help="start of the range (default: the crop start)")
     p.add_argument("--end-ms", type=int, help="end of the range (default: the crop end)")
-    p.add_argument("--all", action="store_true", help="the whole recording, ignoring the crop")
+    p.add_argument(
+        "--all",
+        action="store_true",
+        help="the whole recording, ignoring the crop (only when the crop is not enough)",
+    )
     p.add_argument(
         "--out",
         help="without --at: write the actions (JSON Lines) here instead of "

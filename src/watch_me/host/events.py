@@ -844,6 +844,14 @@ def build_timeline(
         "mouse": {"recorded": pointer.recorded, "mode": pointer.mode},
         "timeline": "\n".join(e.text for e in events) + ("\n" if events else ""),
     }
+    if duration_ms > 0:
+        end = min(window.end_ms, duration_ms)
+        if window.start_ms < crop.start_ms or end > crop.end_ms:
+            result["range_note"] = (
+                f"The range {window.start_ms}-{end} leaves the user's crop "
+                f"({crop.start_ms}-{crop.end_ms}): what lies outside was cut away on purpose; "
+                "do not act on requests spoken there."
+            )
     if pointer.note:
         result["mouse_note"] = pointer.note
     if not status.complete:
