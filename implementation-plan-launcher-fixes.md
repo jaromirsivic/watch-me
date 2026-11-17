@@ -24,7 +24,7 @@ Mimo rozsah (záměrně):
 | Cesta `ROOT_NOT_FOUND` v `skills/*/scripts/*.cmd` a `*.sh` | Funguje, hlídá ji `tests/unit/test_launchers.py`. Mění se jen jeden řádek navíc (krok L6). |
 | Kódování `-X utf8` u oken | Okna ho dnes nemají a plán to nemění, aby se nezměnilo chování exportu. |
 
-Souběh s [plánem přejmenování skillu](implementation-plan-rename-display-recorder.md): tento plán nikde nepíše jméno složky skillu natvrdo mimo testovací konstantu `SKILLS`. Kdo přijde druhý, upraví jen cesty v odkazech dokumentace.
+Souběh s [plánem přejmenování skillu](implementation-plan-rename-skills.md): tento plán nikde nepíše jméno složky skillu natvrdo mimo testovací konstantu `SKILLS`. Kdo přijde druhý, upraví jen cesty v odkazech dokumentace.
 
 ## 2. Zjištění v aktuálním kódu
 

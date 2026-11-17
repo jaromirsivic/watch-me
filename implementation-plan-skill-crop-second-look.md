@@ -28,7 +28,7 @@ Beze změny zůstává (záměrně):
 | Limity jednoho volání (`--window` 24 snímků, 20 000 znaků, 12 000 znaků inline) | Počet kol se neomezuje kódem, jen textem skillu. |
 | `references/agent-startup.md` | Týká se startu, ne zpracování. Musí zůstat bajt po bajtu stejný v obou skillech (`test_recovery_guide_is_the_same_file_in_both_skills`). |
 
-Souvislost: plán `implementation-plan-rename-display-recorder.md` přejmenovává `skills/watch-me` na `skills/watch-me-display-recorder`. Když se provede dřív, platí kroky níže pro novou cestu; obsah změn je stejný.
+Souvislost: plán `implementation-plan-rename-skills.md` přejmenovává `skills/watch-me` na `skills/watch-me-recorder` a `skills/watch-me-editor` na `skills/watch-me-video-editor`. Když se provede dřív, platí kroky níže pro novou cestu; obsah změn je stejný.
 
 ## 2. Rozhodnutí (schválena uživatelem 17. 11. 2026)
 
