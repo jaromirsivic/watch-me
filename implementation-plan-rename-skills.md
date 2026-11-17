@@ -1,6 +1,6 @@
 # Implementační plán: přejmenování na Watch Me Recorder a Watch Me Video Editor
 
-Datum: 14. 11. 2026, upraveno 17. 11. 2026. Verze plánu: 6. Stav: **R1–R5 implementovány 17. 11. 2026**. R0 nebylo potřeba (v profilu nebyly žádné staré odkazy). Zbývá R6 body 3–8 (ruční zkoušky) a zvednutí verze pluginu.
+Datum: 14. 11. 2026, upraveno 17. 11. 2026. Verze plánu: 6. Stav: **R1–R5 implementovány 17. 11. 2026**. R0 nebylo potřeba (v profilu nebyly žádné staré odkazy). Verze zvednuta na 0.5.0 (čtyři manifesty, `src/watch_me/__init__.py` a `uv.lock`), aby hostitelé s kopií pluginu převzali nová jména. Zbývá R6 body 3–8 (ruční zkoušky).
 
 Změny ve verzi 4 (rozhodnutí uživatele ze 17. 11. 2026):
 
