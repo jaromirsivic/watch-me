@@ -13,9 +13,9 @@ speech model or FFmpeg: they are downloaded on your computer at the first start 
 ## Before you install
 
 - **Put the folder where it can stay**, for example `C:\Tools\WatchMe` or `~/WatchMe`.
-  Use a path without spaces (rename the folder, its name does not matter) and reuse the
-  same path for later versions. Claude Code and Codex remember it as the source of the
-  plugin.
+  Use a path without spaces and reuse the same path for later versions: the name of the
+  folder does not matter, so drop the version number from it. Claude Code and Codex
+  remember the path as the source of the plugin.
 - **Do not run anything inside the folder** (no `uv sync`, no launcher). The host copies
   the folder as it is, and an environment created here would be copied with it and would
   not work in the copy.

@@ -5,7 +5,9 @@ default): the recorder's Settings and the editor's sun / moon button change it. 
 applied to the whole application with the Fusion style and a palette built here.
 
 The title bars of the windows contrast with the theme (Windows): dark in the light
-theme, light in the dark one, from the moment a window opens (:class:`TitleBars`).
+theme, light in the dark one, from the moment a window opens (:class:`TitleBars`); once
+a window is on screen the DWM is made to draw its title bar anew, so that the caption
+buttons (Minimize, Maximize, Close) are drawn in the colour of the bar they sit on.
 """
 
 from __future__ import annotations
@@ -136,6 +138,11 @@ _TITLE_BAR_EVENTS = (
     QEvent.Type.ThemeChange,
     QEvent.Type.ApplicationPaletteChange,
 )
+# When the DWM draws a shown window's title bar anew (ms after the Show event). It must
+# happen after the window was first drawn on screen: done at once it changed nothing,
+# done 50 ms to 1 s later it repaired the bar every time (measured on Windows 11 with
+# the maximized editor, 2026-11-17). The second time is for a slow start.
+REDRAW_AFTER_SHOW_MS = (150, 1000)
 
 
 class TitleBars(QObject):
@@ -144,9 +151,10 @@ class TitleBars(QObject):
     the window manager draws the frame).
 
     An event filter on the application sets it when a window is shown or gets its
-    native handle, and again after Qt reacted to a palette or theme change (Qt follows
-    the system colour scheme and would otherwise overwrite it). :func:`apply_theme`
-    installs it and updates the windows already open.
+    native handle, and again after Qt handled the event (Qt follows the system colour
+    scheme and would otherwise overwrite it); shortly after a Show the DWM is also made
+    to draw the title bar anew. :func:`apply_theme` installs it and updates the windows
+    already open.
     """
 
     def __init__(self, app: QApplication) -> None:
@@ -177,28 +185,36 @@ class TitleBars(QObject):
         for widget in self._app.topLevelWidgets():
             self.update_window(widget)
 
-    def update_window(self, widget: QWidget) -> bool:
-        """Set the title bar of ``widget``; False when it has none or is not created."""
+    def update_window(self, widget: QWidget, redraw: bool = False) -> bool:
+        """Set the title bar of ``widget``; False when it has none or is not created.
+        ``redraw`` makes the DWM draw it anew (see ``set_title_bar_dark``)."""
         if not widget.isWindow() or widget.windowType() in _NO_TITLE_BAR:
             return False
         if widget.windowFlags() & Qt.WindowType.FramelessWindowHint:
             return False
         if not widget.testAttribute(Qt.WidgetAttribute.WA_WState_Created):
             return False  # no native window yet: set when it is shown
-        return set_title_bar_dark(int(widget.winId()), self.dark)
+        return set_title_bar_dark(int(widget.winId()), self.dark, redraw=redraw)
 
     def eventFilter(self, watched: QObject, event: QEvent) -> bool:  # noqa: N802
         if event.type() in _TITLE_BAR_EVENTS and isinstance(watched, QWidget):
             if watched.isWindow():
                 self.update_window(watched)
-                if event.type() != QEvent.Type.Show:
-                    # Qt may set its own colour while handling the change: set ours after.
-                    QTimer.singleShot(0, lambda w=watched: self._update_later(w))
+                # Set ours once more after Qt handled the event: Qt may set its own
+                # colour meanwhile.
+                QTimer.singleShot(0, lambda w=watched: self._update_later(w))
+                if event.type() == QEvent.Type.Show:
+                    # Once the window is on screen, make the DWM draw its title bar
+                    # anew: a maximized editor in the light theme often got a light bar
+                    # with white buttons. Right after Show is too early; see
+                    # REDRAW_AFTER_SHOW_MS.
+                    for delay in REDRAW_AFTER_SHOW_MS:
+                        QTimer.singleShot(delay, lambda w=watched: self._update_later(w, True))
         return False
 
-    def _update_later(self, widget: QWidget) -> None:
+    def _update_later(self, widget: QWidget, redraw: bool = False) -> None:
         try:
-            self.update_window(widget)
+            self.update_window(widget, redraw=redraw)
         except RuntimeError:  # the widget was deleted meanwhile
             pass
 
@@ -206,6 +222,7 @@ class TitleBars(QObject):
 __all__ = [
     "DARK",
     "LIGHT",
+    "REDRAW_AFTER_SHOW_MS",
     "TitleBars",
     "apply_theme",
     "dark_palette",

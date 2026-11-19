@@ -514,6 +514,16 @@ def test_attach_un_minimizes_without_touching_a_normal_window(qtbot, folder: Pat
     assert not window.isMinimized() and not window.isMaximized()
 
 
+def test_editor_title_bar_has_a_working_minimize_button(qtbot, folder: Path):
+    """The title bar offers an enabled minimize button, and pressing it minimizes."""
+    window = _open(qtbot, folder)
+    window._attach_timer.stop()
+    assert window.windowFlags() & Qt.WindowType.WindowMinimizeButtonHint
+    assert window.isEnabled()
+    window.setWindowState(Qt.WindowState.WindowMinimized)  # what the title bar button does
+    qtbot.waitUntil(window.isMinimized, timeout=5000)
+
+
 def test_requests_left_by_a_previous_editor_are_declined_at_start(qtbot, folder: Path):
     """A request for an editor that was closing must not hijack the next editor."""
     cfg = Config(recording_folder=folder)

@@ -1,7 +1,5 @@
 # Watch Me
 
-[![CI](https://github.com/jaromirsivic/watch-me/actions/workflows/ci.yml/badge.svg)](https://github.com/jaromirsivic/watch-me/actions/workflows/ci.yml)
-
 Watch Me is a plugin and skill for Claude Code, Codex and Cursor, and for Claude Desktop (and ChatGPT through a remote MCP server). While you work, you narrate what you are doing or what you want done. Watch Me records your microphone, takes periodic screenshots of every connected screen and tracks the cursor; on Windows it also records your clicks, drags, scrolls and two-finger touchpad gestures together with the element under the mouse (a button, a field and its value, the paragraph you clicked into, the text you selected). The audio is transcribed offline with whisper.cpp - by default already while you record - and the agent receives a timed transcript together with the frames, so it can connect what you said with what was on screen and where the cursor was.
 
 - Windows, Linux (X11) and macOS are supported. Windows and Linux were verified on real machines; macOS is verified on the GitHub Actions macOS runner (screens, cursor, recording, drawing capture) and still needs a hands-on check on a Mac with a microphone and a Retina display. The editor window is verified on Windows only.

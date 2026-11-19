@@ -1,8 +1,8 @@
 # Sestavení distribuce pluginu Watch Me
 
 Tento návod platí, kdykoliv uživatel řekne „vyrob novou distribuci“ („sestav distribuci“,
-„udělej dist“). Agent podle něj sestaví složku `dist/WatchMe <verze>/`, například
-`dist/WatchMe 0.5.1/`. Uživatel ji pak zazipuje a pošle komukoliv, kdo si plugin
+„udělej dist“). Agent podle něj sestaví složku `dist/watch-me-<verze>/`, například
+`dist/watch-me-0.5.1/`. Uživatel ji pak zazipuje a pošle komukoliv, kdo si plugin
 nainstaluje do Claude Code, Codexu nebo Cursoru.
 
 Návod je psaný tak, aby se dal provést doslova, bez domýšlení. Ověřeno 17. 11. 2026 na
@@ -17,6 +17,9 @@ Windows 11 s verzí 0.5.1: celý postup podle něj provedl i Opus 5.5 (effort hi
    neuchovávají, proto si každý blok všechno potřebné nastaví sám. Když nástroj nezačíná
    v kořeni repozitáře, dej na začátek každého bloku řádek
    `Set-Location -LiteralPath '<kořen repozitáře>'`. To je jediný dovolený přídavek.
+   K blokům ani k jejich příkazům nepřidávej přesměrování chybového výstupu (`2>&1`,
+   `2>$null`): Windows PowerShell 5.1 by pak očekávanou chybu `PYTHON_MISSING` v kroku 5
+   vzal jako selhání a blok by ukončil.
 3. **Dlouhý příkaz nech doběhnout.** Testy (krok 2) běží asi čtyři minuty a nástroj je
    může po chvíli přesunout na pozadí, i když má nastavený delší limit. Pak počkej na
    oznámení o dokončení a vyhodnoť jeho výstup. Nespouštěj tentýž příkaz podruhé, dokud
@@ -24,9 +27,9 @@ Windows 11 s verzí 0.5.1: celý postup podle něj provedl i Opus 5.5 (effort hi
 4. **Když krok nedopadne tak, jak popisuje „Co musí vyjít“, skonči.** Řekni uživateli,
    který krok selhal a co přesně vypsal. Chybu neobcházej a neopravuj ji úpravou
    souborů v `dist`.
-5. **Soubory ve složce `dist/WatchMe <verze>` ručně neupravuj, nepřidávej ani nemaž.**
+5. **Soubory ve složce `dist/watch-me-<verze>` ručně neupravuj, nepřidávej ani nemaž.**
    Jejich obsah určuje jen krok 3.
-6. **Ve složce `dist/WatchMe <verze>` nic nespouštěj**, ani spouštěče, ani `uv`.
+6. **Ve složce `dist/watch-me-<verze>` nic nespouštěj**, ani spouštěče, ani `uv`.
    Vznikla by tam `.venv` a `__pycache__` a odešly by příjemci.
 7. **Nic necommituj, nezvedej verzi, nepushuj a nevyráběj zip**, pokud o to uživatel
    výslovně nepožádal.
@@ -39,7 +42,7 @@ Windows 11 s verzí 0.5.1: celý postup podle něj provedl i Opus 5.5 (effort hi
 | --- | --- | --- | --- |
 | 1 | kontrola repozitáře a verze | vteřiny | necommitované změny (zeptej se), neshoda verzí |
 | 2 | lint a jednotkové testy | asi 4 minuty | cokoliv neprojde |
-| 3 | export z `HEAD` do `dist/WatchMe <verze>` | vteřiny | blok skončí chybou |
+| 3 | export z `HEAD` do `dist/watch-me-<verze>` | vteřiny | blok skončí chybou |
 | 4 | kontrola obsahu a validace pluginu | vteřiny | kontrola nebo validace neprojde |
 | 5 | zkušební instalace v dočasné složce | 10 s až 10 min | kterýkoliv ze čtyř výsledků nesedí |
 | 6 | závěrečná zpráva uživateli | | |
@@ -163,7 +166,7 @@ Když uživatel výslovně řekl, že testy nechce, krok vynech a v závěrečn�
 ```powershell
 $ErrorActionPreference = 'Stop'
 $version = (Get-Content -Raw plugin.json | ConvertFrom-Json).version
-$target = Join-Path (Get-Location) "dist\WatchMe $version"
+$target = Join-Path (Get-Location) "dist\watch-me-$version"
 $paths = @(
     '.claude-plugin', 'plugin.json', 'skills', 'src',
     'scripts/bootstrap.py', 'scripts/launch.bat', 'scripts/launch.sh',
@@ -195,7 +198,7 @@ Move-Item -LiteralPath (Join-Path $target 'docs\distribution-install.md') -Desti
 ```
 
 Co musí vyjít: poslední řádek začíná `Sestaveno:` a končí cestou
-`...\dist\WatchMe <verze>`.
+`...\dist\watch-me-<verze>`.
 
 - Když se před ním objeví `Nahrazena existující složka této verze.`, uveď to v závěrečné
   zprávě (viz šablona v kroku 6).
@@ -210,7 +213,7 @@ Co musí vyjít: poslední řádek začíná `Sestaveno:` a končí cestou
 ```powershell
 $ErrorActionPreference = 'Stop'
 $version = (Get-Content -Raw plugin.json | ConvertFrom-Json).version
-$target = Join-Path (Get-Location) "dist\WatchMe $version"
+$target = Join-Path (Get-Location) "dist\watch-me-$version"
 $paths = @(
     '.claude-plugin', 'plugin.json', 'skills', 'src',
     'scripts/bootstrap.py', 'scripts/launch.bat', 'scripts/launch.sh',
@@ -271,7 +274,7 @@ Pak validace manifestů a skillů nástrojem Claude Code:
 
 ```powershell
 $version = (Get-Content -Raw plugin.json | ConvertFrom-Json).version
-claude plugin validate (Join-Path (Get-Location) "dist\WatchMe $version")
+claude plugin validate (Join-Path (Get-Location) "dist\watch-me-$version")
 ```
 
 Co musí vyjít: poslední řádek výpisu obsahuje `Validation passed` (před ním může být
@@ -293,7 +296,7 @@ oznámení o dokončení (pravidlo 3).
 ```powershell
 $ErrorActionPreference = 'Stop'
 $version = (Get-Content -Raw plugin.json | ConvertFrom-Json).version
-$target = Join-Path (Get-Location) "dist\WatchMe $version"
+$target = Join-Path (Get-Location) "dist\watch-me-$version"
 $try = Join-Path $env:TEMP "watch-me dist-try\watch-me\$version"
 if (Test-Path -LiteralPath $try) { Remove-Item -LiteralPath $try -Recurse -Force }
 New-Item -ItemType Directory -Force (Split-Path $try) | Out-Null
@@ -351,7 +354,7 @@ Závěrečnou zprávu napiš uživateli česky podle této šablony. Vyplň skut
 řádky, které neplatí, vynech:
 
 ```text
-Distribuce je hotová: dist/WatchMe <verze>
+Distribuce je hotová: dist/watch-me-<verze>
 
 - Verze <verze>, větev <větev>, commit <hash>
 - <N> souborů, <X> MB
@@ -363,7 +366,7 @@ Distribuce je hotová: dist/WatchMe <verze>
   rozesláním zvednutí verze, jinak se dvě různé distribuce <verze> nedají rozlišit.
 - V distribuci nejsou tyto necommitované změny: <seznam>
 
-Zazipuj celou složku „WatchMe <verze>“ (včetně .claude-plugin) a pošli ji.
+Zazipuj celou složku „watch-me-<verze>“ (včetně .claude-plugin) a pošli ji.
 Příjemce postupuje podle INSTALL.md v jejím kořeni.
 ```
 
@@ -372,8 +375,8 @@ který zapisuje cesty s lomítky čitelnými i na Linuxu a macOS:
 
 ```powershell
 $version = (Get-Content -Raw plugin.json | ConvertFrom-Json).version
-& "$env:SystemRoot\System32\tar.exe" -a -c -f "dist\WatchMe $version.zip" -C dist "WatchMe $version"
-"Zip: dist\WatchMe $version.zip, kód: $LASTEXITCODE"
+& "$env:SystemRoot\System32\tar.exe" -a -c -f "dist\watch-me-$version.zip" -C dist "watch-me-$version"
+"Zip: dist\watch-me-$version.zip, kód: $LASTEXITCODE"
 ```
 
 ## Když něco selže
@@ -392,7 +395,7 @@ $version = (Get-Content -Raw plugin.json | ConvertFrom-Json).version
 | nástroj přesunul příkaz na pozadí | příkaz dál běží | počkej na oznámení o dokončení, nespouštěj ho znovu |
 | nástroj příkaz ukončil pro vypršení času | limit byl kratší než běh | spusť tentýž blok znovu s limitem 10 minut |
 
-Ve všech případech „skonči“ zůstává složka `dist/WatchMe <verze>` tak, jak je; řekni
+Ve všech případech „skonči“ zůstává složka `dist/watch-me-<verze>` tak, jak je; řekni
 uživateli, že **není ověřená a nemá se rozesílat**.
 
 ## Jak plugin nainstaluje příjemce

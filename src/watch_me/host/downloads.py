@@ -24,7 +24,7 @@ from watch_me.core.fileio import atomic_write_text
 
 log = logging.getLogger(__name__)
 
-USER_AGENT = f"watch-me/{__version__} (+https://github.com/jaromirsivic/watch-me)"
+USER_AGENT = f"watch-me/{__version__}"
 DEFAULT_TIMEOUT = 60.0
 DEFAULT_ATTEMPTS = 3
 CHUNK_SIZE = 1 << 20

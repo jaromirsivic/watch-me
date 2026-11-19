@@ -30,13 +30,30 @@ def restore_theme(qapp):
 
 
 @pytest.fixture
-def title_bars(monkeypatch):
+def dwm_calls(monkeypatch):
+    """The calls to the DWM, twice: (window handle, dark) and (handle, dark, redraw)."""
+    pairs: list[tuple[int, bool]] = []
+    triples: list[tuple[int, bool, bool]] = []
+
+    def record(hwnd, dark, redraw=False):
+        pairs.append((hwnd, dark))
+        triples.append((hwnd, dark, redraw))
+        return True
+
+    monkeypatch.setattr(theme, "set_title_bar_dark", record)
+    return pairs, triples
+
+
+@pytest.fixture
+def title_bars(dwm_calls):
     """The calls to the DWM: (window handle, dark)."""
-    calls: list[tuple[int, bool]] = []
-    monkeypatch.setattr(
-        theme, "set_title_bar_dark", lambda hwnd, dark: calls.append((hwnd, dark)) or True
-    )
-    return calls
+    return dwm_calls[0]
+
+
+@pytest.fixture
+def redraws(dwm_calls):
+    """The calls to the DWM: (window handle, dark, redraw)."""
+    return dwm_calls[1]
 
 
 def test_title_bar_contrasts_with_the_theme():
@@ -64,6 +81,91 @@ def test_title_bars_follow_the_theme_from_the_first_show(qtbot, title_bars):
     title_bars.clear()
     theme.apply_theme(False)
     assert (hwnd, True) in title_bars
+
+
+@pytest.mark.usefixtures("restore_theme")
+def test_title_bar_is_drawn_anew_after_the_window_is_on_screen(qtbot, redraws):
+    """The DWM may draw a light bar with white buttons although the value reads dark:
+    shortly after Show (not at once, that is too early) it is made to draw the bar anew."""
+    assert theme.REDRAW_AFTER_SHOW_MS[0] > 0
+    theme.apply_theme(False)
+    dialog = QDialog()
+    qtbot.addWidget(dialog)
+    dialog.show()
+    hwnd = int(dialog.winId())
+    assert (hwnd, True, False) in redraws and (hwnd, True, True) not in redraws  # at once
+    wanted = len(theme.REDRAW_AFTER_SHOW_MS)
+    timeout = max(theme.REDRAW_AFTER_SHOW_MS) + 2000
+    qtbot.waitUntil(lambda: redraws.count((hwnd, True, True)) == wanted, timeout=timeout)
+    assert all(dark for h, dark, _ in redraws if h == hwnd)
+    redraws.clear()
+    theme.apply_theme(True)  # a theme switch changes the value: the DWM draws it anyway
+    qtbot.waitUntil(lambda: redraws.count((hwnd, False, False)) >= 2, timeout=1000)
+    assert (hwnd, False, True) not in redraws
+
+
+class _FakeDwm:
+    """DwmSetWindowAttribute of one window and IsWindowVisible."""
+
+    def __init__(self, visible: bool = True, refuse=()):
+        self.visible = visible
+        self.refuse = set(refuse)
+        self.values: list[tuple[int, bool]] = []  # (attribute, dark) in the order set
+
+    def DwmSetWindowAttribute(self, hwnd, attribute, pointer, size):  # noqa: N802
+        if attribute.value in self.refuse:
+            return 1
+        self.values.append((attribute.value, bool(pointer._obj.value)))
+        return 0
+
+    def IsWindowVisible(self, hwnd):  # noqa: N802
+        return self.visible
+
+
+@pytest.fixture
+def fake_dwm(monkeypatch):
+    from watch_me.platform import windows_titlebar as wt
+
+    def install(**kwargs) -> _FakeDwm:
+        fake = _FakeDwm(**kwargs)
+        monkeypatch.setattr(wt.sys, "platform", "win32")
+        monkeypatch.setattr(wt, "_api", lambda: (fake, fake))
+        monkeypatch.setattr(wt, "_warned", set())
+        return fake
+
+    return install
+
+
+@pytest.mark.parametrize(
+    "dark, visible, redraw, values",
+    [
+        (True, True, False, [True]),  # a plain set
+        (True, True, True, [True, False, True]),  # on screen: the opposite and back
+        (False, True, True, [False, True, False]),
+        (True, False, True, [True]),  # not on screen yet: nothing to draw anew
+    ],
+)
+def test_set_title_bar_dark_draws_the_bar_anew_on_request(fake_dwm, dark, visible, redraw, values):
+    from watch_me.platform import windows_titlebar as wt
+
+    fake = fake_dwm(visible=visible)
+    assert wt.set_title_bar_dark(1234, dark, redraw=redraw) is True
+    assert fake.values == [(wt.DWMWA_USE_IMMERSIVE_DARK_MODE, v) for v in values]
+
+
+def test_set_title_bar_dark_falls_back_and_logs_a_refusal_once(fake_dwm, caplog):
+    from watch_me.platform import windows_titlebar as wt
+
+    fake = fake_dwm(refuse={wt.DWMWA_USE_IMMERSIVE_DARK_MODE})
+    assert wt.set_title_bar_dark(1, True) is True  # Windows 10 1809-1909: the old attribute
+    assert fake.values == [(wt.DWMWA_USE_IMMERSIVE_DARK_MODE_OLD, True)]
+    fake.refuse.add(wt.DWMWA_USE_IMMERSIVE_DARK_MODE_OLD)
+    with caplog.at_level("WARNING", logger=wt.__name__):
+        assert wt.set_title_bar_dark(2, True) is False
+        assert wt.set_title_bar_dark(2, False) is False
+    assert [r.getMessage() for r in caplog.records] == [
+        "cannot set the title bar colour of window 2 (DWM refused)"
+    ]
 
 
 @pytest.mark.usefixtures("restore_theme")
