@@ -15,6 +15,7 @@ log = logging.getLogger(__name__)
 MONITORINFOF_PRIMARY = 0x1
 MDT_EFFECTIVE_DPI = 0
 DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2 = -4
+WDA_NONE = 0x0
 WDA_EXCLUDEFROMCAPTURE = 0x11
 
 
@@ -147,4 +148,17 @@ class WindowsPlatform(Platform):
             return False
 
 
-__all__ = ["WindowsPlatform"]
+def set_window_capture_excluded(window_handle: int, excluded: bool) -> bool:
+    """Leave a window out of screen capture (``excluded``) or put it back; True when
+    applied. The drawing layer uses it to grab the live screen under itself."""
+    try:
+        return bool(
+            ctypes.windll.user32.SetWindowDisplayAffinity(
+                wintypes.HWND(window_handle), WDA_EXCLUDEFROMCAPTURE if excluded else WDA_NONE
+            )
+        )
+    except (AttributeError, OSError):
+        return False
+
+
+__all__ = ["WindowsPlatform", "set_window_capture_excluded"]

@@ -11,7 +11,7 @@ from pathlib import Path  # noqa: E402
 
 import pytest  # noqa: E402
 from PySide6.QtCore import QItemSelectionModel, QPoint, Qt  # noqa: E402
-from PySide6.QtGui import QFontMetrics  # noqa: E402
+from PySide6.QtGui import QFontMetrics, QTextCursor  # noqa: E402
 from test_editor import NEWEST, OLDER, _wait_loaded, make_recording  # noqa: E402
 
 from watch_me.core.config import Config  # noqa: E402
@@ -23,6 +23,7 @@ from watch_me.core.session import (  # noqa: E402
 )
 from watch_me.editor.instructions_dialog import (  # noqa: E402
     CREATE_PLAN,
+    CUSTOM,
     DRAFT_INTENT,
     EXPLANATION,
     IMPLEMENT,
@@ -62,13 +63,79 @@ def test_instructions_button_has_no_icon_and_the_example_text_is_gone(editor):
     assert "Say what you want" not in EXPLANATION
 
 
-def test_three_templates_fill_the_box(qtbot):
+def _combo_items(dialog: InstructionsDialog) -> list[str]:
+    combo = dialog.template_combo
+    return [combo.itemText(i) for i in range(combo.count())]
+
+
+def _record_questions(dialog: InstructionsDialog, answer: dict[str, bool]) -> list[str]:
+    """Replace both confirmations with ones that note the question and give ``answer``."""
+    asked: list[str] = []
+
+    def confirm_replace(template):
+        asked.append(template.name)
+        return answer["value"]
+
+    def confirm_clear():
+        asked.append(CUSTOM)
+        return answer["value"]
+
+    dialog.confirm_replace = confirm_replace
+    dialog.confirm_clear = confirm_clear
+    return asked
+
+
+def test_combo_lists_custom_and_the_three_templates_with_tooltips(qtbot):
     dialog = InstructionsDialog("")
     qtbot.addWidget(dialog)
-    assert list(dialog.template_buttons) == ["Draft Intent", "Create Plan", "Implement"]
-    dialog.template_buttons["Create Plan"].click()
+    assert _combo_items(dialog) == [CUSTOM, "Draft Intent", "Create Plan", "Implement"]
+    assert CUSTOM not in [t.name for t in TEMPLATES]
+    combo = dialog.template_combo
+    tooltips = [combo.itemData(i, Qt.ItemDataRole.ToolTipRole) for i in range(combo.count())]
+    assert tooltips[1:] == [t.tooltip for t in TEMPLATES]
+    assert "own" in tooltips[0]
+
+
+def test_empty_box_opens_on_custom(qtbot):
+    dialog = InstructionsDialog("")
+    qtbot.addWidget(dialog)
+    assert dialog.template_combo.currentText() == CUSTOM
+
+
+def test_other_text_opens_on_custom(qtbot):
+    dialog = InstructionsDialog("my own words")
+    qtbot.addWidget(dialog)
+    assert dialog.template_combo.currentText() == CUSTOM
+
+
+def test_a_templates_text_opens_on_that_template_without_asking(qtbot, monkeypatch):
+    def never(*_args):
+        raise AssertionError("opening the dialog must not ask")
+
+    monkeypatch.setattr(InstructionsDialog, "confirm_replace", never)
+    monkeypatch.setattr(InstructionsDialog, "confirm_clear", never)
+    dialog = InstructionsDialog("\n" + CREATE_PLAN.text.strip() + "\n\n")
+    qtbot.addWidget(dialog)
+    assert dialog.template_combo.currentText() == "Create Plan"
+    assert dialog.text_edit.toPlainText() == "\n" + CREATE_PLAN.text.strip() + "\n\n"
+
+
+def test_picking_a_template_fills_an_empty_box_without_asking(qtbot):
+    dialog = InstructionsDialog("")
+    qtbot.addWidget(dialog)
+    asked = _record_questions(dialog, {"value": False})
+    assert dialog.select_template("Create Plan")
+    assert asked == []
     assert dialog.text_edit.toPlainText() == CREATE_PLAN.text
+    assert dialog.template_combo.currentText() == "Create Plan"
     assert "implementation plan" in dialog.instructions()
+
+
+def test_picking_a_template_in_the_combo_fills_the_box(qtbot):
+    dialog = InstructionsDialog("")
+    qtbot.addWidget(dialog)
+    dialog.template_combo.setCurrentIndex(dialog.template_combo.findText("Draft Intent"))
+    assert dialog.text_edit.toPlainText() == DRAFT_INTENT.text
 
 
 def test_template_texts_say_what_the_ai_must_do():
@@ -81,22 +148,76 @@ def test_template_texts_say_what_the_ai_must_do():
 def test_replacing_other_text_asks_first(qtbot):
     dialog = InstructionsDialog("my own words")
     qtbot.addWidget(dialog)
-    asked: list[str] = []
     answer = {"value": False}
-
-    def confirm(template):
-        asked.append(template.name)
-        return answer["value"]
-
-    dialog.confirm_replace = confirm
-    dialog.template_buttons["Implement"].click()
+    asked = _record_questions(dialog, answer)
+    assert not dialog.select_template("Implement")
     assert asked == ["Implement"]
     assert dialog.text_edit.toPlainText() == "my own words", "No keeps the text"
+    assert dialog.template_combo.currentText() == CUSTOM, "No puts the combo back"
     answer["value"] = True
-    dialog.template_buttons["Implement"].click()
+    assert dialog.select_template("Implement")
     assert dialog.text_edit.toPlainText() == IMPLEMENT.text
-    dialog.template_buttons["Implement"].click()  # the same template again: no question
+    assert dialog.template_combo.currentText() == "Implement"
+    assert dialog.apply_template(IMPLEMENT)  # the same template again: no question
     assert asked == ["Implement", "Implement"]
+
+
+def test_switching_between_templates_asks_and_no_goes_back(qtbot):
+    dialog = InstructionsDialog(DRAFT_INTENT.text)
+    qtbot.addWidget(dialog)
+    answer = {"value": False}
+    asked = _record_questions(dialog, answer)
+    assert not dialog.select_template("Create Plan")
+    assert asked == ["Create Plan"]
+    assert dialog.template_combo.currentText() == "Draft Intent"
+    assert dialog.text_edit.toPlainText() == DRAFT_INTENT.text
+    answer["value"] = True
+    assert dialog.select_template("Create Plan")
+    assert dialog.text_edit.toPlainText() == CREATE_PLAN.text
+
+
+def test_custom_clears_the_box_after_yes(qtbot):
+    dialog = InstructionsDialog(IMPLEMENT.text)
+    qtbot.addWidget(dialog)
+    asked = _record_questions(dialog, {"value": True})
+    assert dialog.select_template(CUSTOM)
+    assert asked == [CUSTOM]
+    assert dialog.text_edit.toPlainText() == ""
+    assert dialog.template_combo.currentText() == CUSTOM
+
+
+def test_custom_with_no_keeps_the_template_and_its_text(qtbot):
+    dialog = InstructionsDialog(IMPLEMENT.text)
+    qtbot.addWidget(dialog)
+    asked = _record_questions(dialog, {"value": False})
+    assert not dialog.select_template(CUSTOM)
+    assert asked == [CUSTOM]
+    assert dialog.text_edit.toPlainText() == IMPLEMENT.text
+    assert dialog.template_combo.currentText() == "Implement"
+
+
+def test_custom_on_an_empty_box_asks_nothing(qtbot):
+    dialog = InstructionsDialog("")
+    qtbot.addWidget(dialog)
+    asked = _record_questions(dialog, {"value": True})
+    dialog._set_combo("Draft Intent")  # a template selected over an empty box
+    assert dialog.select_template(CUSTOM)
+    assert asked == []
+    assert dialog.text_edit.toPlainText() == ""
+    assert dialog.template_combo.currentText() == CUSTOM
+
+
+def test_editing_a_templates_text_by_hand_switches_to_custom(qtbot):
+    dialog = InstructionsDialog("")
+    qtbot.addWidget(dialog)
+    asked = _record_questions(dialog, {"value": True})
+    assert dialog.select_template("Draft Intent")
+    assert dialog.template_combo.currentText() == "Draft Intent"
+    dialog.text_edit.moveCursor(QTextCursor.MoveOperation.End)
+    dialog.text_edit.insertPlainText("Also check the logs.\n")
+    assert dialog.template_combo.currentText() == CUSTOM
+    assert asked == []
+    assert dialog.text_edit.toPlainText() == DRAFT_INTENT.text + "Also check the logs.\n"
 
 
 # Application icon -------------------------------------------------------------------

@@ -75,6 +75,12 @@ LIVE_TRANSCRIPTION_DEFAULT = "light"
 ThemeName = Literal["light", "dark"]
 THEMES = ("light", "dark")
 THEME_DEFAULT = "light"
+# What happens to the recorder's control window when the user presses Record: it stays
+# ("none"), is minimized to the taskbar ("taskbar") or hidden behind a tray icon
+# ("tray"). With "tray" the minimize button of its title bar hides it to the tray too.
+StartMinimized = Literal["none", "taskbar", "tray"]
+START_MINIMIZED_CHOICES = ("none", "taskbar", "tray")
+START_MINIMIZED_DEFAULT = "none"
 
 
 class ConfigError(ValueError):
@@ -213,10 +219,11 @@ class Config:
     archive_after_days: int = ARCHIVE_AFTER_DEFAULT_DAYS  # 0: never archive automatically
     drawing_grid_px: int = DRAWING_GRID_DEFAULT_PX
     theme: ThemeName = THEME_DEFAULT  # type: ignore[assignment]
-    # The minimize button of the recorder's control window: False minimizes it to the
-    # taskbar, True hides it behind a tray icon. Only the recorder; the editor and every
-    # other window always minimize normally.
-    minimize_to_tray: bool = False
+    # The recorder's control window after Record (only Record, not Continue Recording or
+    # Resume): "none" stays, "taskbar" minimizes, "tray" hides it to the tray. Its
+    # minimize button hides it to the tray only with "tray". Only the recorder; the
+    # editor and every other window always minimize normally.
+    start_minimized: StartMinimized = START_MINIMIZED_DEFAULT  # type: ignore[assignment]
     export_preset: str = EXPORT_PRESET_DEFAULT
     export_crf: int = EXPORT_CRF_DEFAULT
     export_audio_bitrate_k: int = EXPORT_AUDIO_BITRATE_K_DEFAULT
@@ -364,7 +371,9 @@ def config_from_dict(data: dict[str, Any]) -> Config:
             DRAWING_GRID_DEFAULT_PX,
         ),
         theme=_choice(data, "theme", THEMES, THEME_DEFAULT),  # type: ignore[arg-type]
-        minimize_to_tray=_require_bool(data, "minimize_to_tray", False),
+        start_minimized=_choice(  # type: ignore[arg-type]
+            data, "start_minimized", START_MINIMIZED_CHOICES, START_MINIMIZED_DEFAULT
+        ),
         export_preset=_choice(data, "export_preset", EXPORT_PRESETS, EXPORT_PRESET_DEFAULT),
         export_crf=_require_int(data, "export_crf", 0, 51, EXPORT_CRF_DEFAULT),
         export_audio_bitrate_k=_require_int(
@@ -492,6 +501,8 @@ __all__ = [
     "CODE_ROOT_ENV",
     "STATE_DIR_NAME",
     "STATE_HOME_ENV",
+    "START_MINIMIZED_CHOICES",
+    "START_MINIMIZED_DEFAULT",
     "THEMES",
     "THEME_DEFAULT",
     "Config",

@@ -96,12 +96,21 @@ button (`G`) that stays pressed until clicked again, snaps the points to a grid,
 `GRID on` / `GRID off` in the timeline; `Ctrl+Z` undoes and `Ctrl+Y` redoes a shape or
 an eraser stroke), and **Sketch** (`S`, also a button that stays pressed) swaps every
 screen for a plain white canvas to sketch on (`SKETCH on` / `SKETCH off` in the
-timeline). A thick colored border around every screen in the frames is
-not a drawing, only a signal to the user: red / dark red during the first second after
+timeline). **Pass through** (`P`, a button that stays pressed) is pressed each time
+drawing starts, so the layer shows the live screens; released, the layer shows
+the screens as they were when drawing started (`PASS THROUGH on` / `off` in the
+timeline). The Drawing tools window
+can be minimized to its title bar (the shortcuts keep working). A thick colored border
+around every screen in the frames is
+not a drawing, only a signal to the user: red / dark red during the half second after
 drawing starts, green / dark green during the half second after it ends; it never
-appears in the timeline or among the shapes. The minimize button of the window's title
-bar minimizes it to the taskbar, or with **Minimize to Tray** chosen in Settings hides it to
-the system tray (a click on the tray icon shows it again). The user can press
+appears in the timeline or among the shapes. **Start Minimized** in Settings decides what
+happens to the window when the user presses **Record** (not Continue Recording or
+Resume): it stays (the default), is minimized to the taskbar, or is hidden to the system
+tray (minimized to the taskbar where there is no tray); it is shown again when the
+recording stops. The minimize button of the window's title bar hides it to the tray
+with **Minimize to tray** chosen (a click on the tray icon shows it again), otherwise it
+minimizes it to the taskbar. The user can press
 **Stop** (`Ctrl+Alt+S`), then choose **Video Editor** (the default: the editor opens at once and
 transcribes while the user crops - the green arrow under the narration track says
 `transcribing (ETA: m:ss)` -, optionally corrects subtitles with **Edit**, types master
@@ -251,6 +260,17 @@ One event per line, ordered by time in milliseconds since the recording started:
   screen, and the frames show only the canvas with the shapes; what was on the screen
   is in the frames before `SKETCH on`. Each frame says it as `background` (`screen`,
   `sketch`, or null while not drawing), each shape as its own `background` in `drawings`.
+- `PASS THROUGH on` / `PASS THROUGH off` - Pass through is pressed each time drawing
+  starts, so `PASS THROUGH on` normally appears right when drawing starts and `PASS
+  THROUGH off (drawing layer closed; ...)` when it ends. Between `on` and `off` the
+  frames show the live screens (a video keeps playing; a menu that closed when drawing
+  started is no longer visible); a `ZOOM` started meanwhile shows the screen frozen at
+  that moment. `PASS THROUGH off: the drawing layer shows the screens as they were at
+  <ms> (drawing started) again` means the user released Pass through (`P`): until the
+  next `on` the frames are a still picture of the screens at that time (a video stands
+  still, a menu that closed meanwhile is still visible). Each frame says it as
+  `pass_through` (true / false while drawing, null otherwise and in older recordings,
+  whose drawing layer always showed the live screens at 100 %).
 - `GRID on` / `GRID off` - while drawing, the user held Ctrl (`Ctrl held` / `Ctrl
   released`) or pressed the Snap to grid button (`Snap to grid switched on` / `off`;
   then the grid can stay on for a long time without Ctrl): the points of rectangles,
@@ -353,7 +373,7 @@ something). Skip the rest.
   the recording: keep it inside `crop` (`outside_crop` true in the result says that
   you left it). Each entry has `image`
   (open it with your image viewing tool), `cursor` `{screen, x, y}` (pixels
-  of that image), `drawing_now`, `zoom`, `background`, `grid` and `clipboard`; `--no-drawings` replaces the
+  of that image), `drawing_now`, `zoom`, `background`, `grid`, `pass_through` and `clipboard`; `--no-drawings` replaces the
   repeated list of shapes (already in the timeline) by `drawing_ids`. Without it each
   frame carries `drawings`: every finished shape on screen with `id`, `tool`, `color`,
   `screen`, `started_ms`, `finished_ms` and `from`/`to` or `path` (points
@@ -420,7 +440,8 @@ Mention the detected language if it is unexpected. Keep the recording folder unt
   Mute PC pressed; the computer's sound is still recorded once the user unmutes it),
   `mouse_actions` true|false (clicks, the
   elements under the mouse and their content; default true), `auto_stop_minutes`,
-  `archive_after_days`). The user can also use
+  `archive_after_days`, `start_minimized` none|taskbar|tray - what happens to the
+  window after Record, default none). The user can also use
   the **Settings** button, which also opens the recording folder (recordings are
   deleted in the editor only). The editor groups recordings into folders: a recording
   lies in `<recording_folder>/<folder>/<session_id>/`, a new one in the user's main

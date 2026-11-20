@@ -1,10 +1,14 @@
 """The **Instructions** dialog: master instructions for the AI about the whole recording.
 
-Under the explanation, three template buttons fill the text box with a ready-made
-English instruction: **Draft Intent** (a formal brief, then ask how to continue),
-**Create Plan** (an implementation or execution plan) and **Implement** (carry out
-everything autonomously). When the box already holds other text, a confirmation asks
-before it is replaced.
+Under the explanation, a combo box across the whole dialog chooses the template:
+**Custom** (your own words, the default) or one of the ready-made English instructions
+**Draft Intent** (a formal brief, then ask how to continue), **Create Plan** (an
+implementation or execution plan) and **Implement** (carry out everything
+autonomously). Picking a template fills the text box with it; picking Custom clears the
+box. When the box already holds other text, a confirmation asks first, and No puts the
+combo back on its previous item. Editing a template's text by hand switches the combo
+to Custom without asking. The dialog opens on the template whose text is in the box,
+otherwise on Custom.
 """
 
 from __future__ import annotations
@@ -14,13 +18,13 @@ from dataclasses import dataclass
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QFont
 from PySide6.QtWidgets import (
+    QComboBox,
     QDialog,
     QDialogButtonBox,
-    QHBoxLayout,
     QLabel,
     QMessageBox,
     QPlainTextEdit,
-    QPushButton,
+    QSizePolicy,
     QVBoxLayout,
     QWidget,
 )
@@ -36,6 +40,10 @@ EXPLANATION = (
 PLACEHOLDER = "e.g. Create an implementation plan from what I describe in this recording."
 REPLACE_TITLE = "Replace the instructions?"
 REPLACE_TEXT = "The box already contains text. Replace it with the “{name}” template?"
+CLEAR_TITLE = "Clear the instructions?"
+CLEAR_TEXT = "Clear the box? The text in it will be deleted."
+CUSTOM = "Custom"
+CUSTOM_TOOLTIP = "Write your own instructions"
 
 
 @dataclass(frozen=True)
@@ -121,20 +129,18 @@ class InstructionsDialog(QDialog):
         explanation.setWordWrap(True)
         explanation.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         layout.addWidget(explanation)
-        templates = QHBoxLayout()
-        # Into the dialog's layout before the buttons go in (see watch_me.editor.workers:
-        # otherwise Python keeps owning them and they can be deleted twice).
-        layout.addLayout(templates)
-        templates.setSpacing(8)
-        self.template_buttons: dict[str, QPushButton] = {}
+        # Created with the dialog as parent, so Python never owns it alone (see
+        # watch_me.editor.workers: otherwise it can be deleted twice).
+        self.template_combo = QComboBox(self)
+        self.template_combo.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self.template_combo.addItem(CUSTOM)
+        self.template_combo.setItemData(0, CUSTOM_TOOLTIP, Qt.ItemDataRole.ToolTipRole)
         for template in TEMPLATES:
-            button = QPushButton(template.name)
-            button.setToolTip(template.tooltip)
-            button.setAutoDefault(False)
-            button.clicked.connect(lambda _=False, t=template: self.apply_template(t))
-            templates.addWidget(button)
-            self.template_buttons[template.name] = button
-        templates.addStretch(1)
+            self.template_combo.addItem(template.name)
+            self.template_combo.setItemData(
+                self.template_combo.count() - 1, template.tooltip, Qt.ItemDataRole.ToolTipRole
+            )
+        layout.addWidget(self.template_combo)
         self.text_edit = QPlainTextEdit(self)
         self.text_edit.setPlaceholderText(PLACEHOLDER)
         self.text_edit.setPlainText(text)
@@ -144,7 +150,15 @@ class InstructionsDialog(QDialog):
         self.counter = QLabel("")
         self.counter.setAlignment(Qt.AlignmentFlag.AlignRight)
         layout.addWidget(self.counter)
+        # True while the dialog itself puts text into the box (a template or Custom's
+        # clearing): that is no edit by hand and must not switch the combo to Custom.
+        self._setting_text = False
+        self._selected = CUSTOM  # the item picked last, to go back to after a No
+        matching = self._template_matching(text)
+        self._set_combo(matching.name if matching is not None else CUSTOM)
+        self.template_combo.currentIndexChanged.connect(self._on_template_picked)
         self.text_edit.textChanged.connect(self._update_counter)
+        self.text_edit.textChanged.connect(self._on_text_changed)
         self._update_counter()
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel, self
@@ -170,16 +184,92 @@ class InstructionsDialog(QDialog):
         )
         return answer == QMessageBox.StandardButton.Yes
 
+    def confirm_clear(self) -> bool:
+        """Ask before Custom clears the text in the box (tests override this)."""
+        answer = QMessageBox.question(
+            self,
+            CLEAR_TITLE,
+            CLEAR_TEXT,
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        return answer == QMessageBox.StandardButton.Yes
+
+    def selected_template(self) -> str:
+        """The name of the item selected in the combo box (``CUSTOM`` or a template)."""
+        return self.template_combo.currentText()
+
     def apply_template(self, template: Template) -> bool:
-        """Put ``template`` into the box; asks first when other text would be lost."""
+        """Put ``template`` into the box; asks first when other text would be lost.
+
+        On success the combo box shows ``template``; returns whether it was applied.
+        """
         current = self.text_edit.toPlainText()
-        if current.strip() == template.text.strip():
-            return True
-        if current.strip() and not self.confirm_replace(template):
-            return False
-        self.text_edit.setPlainText(template.text)
+        if current.strip() != template.text.strip():
+            if current.strip() and not self.confirm_replace(template):
+                return False
+            self._put_text(template.text)
+        self._set_combo(template.name)
         self.text_edit.setFocus()
         return True
+
+    def select_template(self, name: str) -> bool:
+        """Pick ``name`` (``CUSTOM`` or a template's name) as the user would in the combo
+        box; returns whether the change was applied (False after a No)."""
+        index = self.template_combo.findText(name)
+        if index < 0:
+            raise ValueError(f"Unknown template: {name}")
+        self.template_combo.setCurrentIndex(index)
+        return self.template_combo.currentIndex() == index
+
+    def _on_template_picked(self, index: int) -> None:
+        name = self.template_combo.itemText(index)
+        if name == CUSTOM:
+            applied = self._apply_custom()
+        else:
+            applied = self.apply_template(next(t for t in TEMPLATES if t.name == name))
+        if not applied:
+            self._set_combo(self._selected)
+
+    def _apply_custom(self) -> bool:
+        """Custom clears the box; asks first when it holds any text."""
+        if self.text_edit.toPlainText().strip() and not self.confirm_clear():
+            return False
+        if self.text_edit.toPlainText():
+            self._put_text("")
+        self._set_combo(CUSTOM)
+        self.text_edit.setFocus()
+        return True
+
+    def _on_text_changed(self) -> None:
+        if self._setting_text or self._selected == CUSTOM:
+            return
+        template = next(t for t in TEMPLATES if t.name == self._selected)
+        if self.text_edit.toPlainText().strip() != template.text.strip():
+            self._set_combo(CUSTOM)  # edited by hand: the text is the user's own now
+
+    def _put_text(self, text: str) -> None:
+        self._setting_text = True
+        try:
+            self.text_edit.setPlainText(text)
+        finally:
+            self._setting_text = False
+
+    def _set_combo(self, name: str) -> None:
+        """Select ``name`` without reacting to it as a pick by the user."""
+        self.template_combo.blockSignals(True)
+        try:
+            self.template_combo.setCurrentIndex(self.template_combo.findText(name))
+        finally:
+            self.template_combo.blockSignals(False)
+        self._selected = name
+
+    @staticmethod
+    def _template_matching(text: str) -> Template | None:
+        stripped = text.strip()
+        if not stripped:
+            return None
+        return next((t for t in TEMPLATES if t.text.strip() == stripped), None)
 
     def instructions(self) -> str:
         return normalize_instructions(self.text_edit.toPlainText())
@@ -187,6 +277,7 @@ class InstructionsDialog(QDialog):
 
 __all__ = [
     "CREATE_PLAN",
+    "CUSTOM",
     "DRAFT_INTENT",
     "EXPLANATION",
     "HEADING",

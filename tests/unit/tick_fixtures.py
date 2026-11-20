@@ -73,6 +73,7 @@ class IndexBuilder:
                 background=first.get("background"),
                 grid=grid or None,
                 grid_source=first.get("grid_source"),
+                pass_through=first.get("pass_through"),
                 clipboard=first.get("clipboard"),
                 failed=[screen for screen in screens if screen not in by_screen],
             )

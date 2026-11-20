@@ -153,8 +153,9 @@ def test_g_toggles_snap_to_grid_and_ctrl_g_does_not(overlay):
 def test_toolbar_has_sketch_snap_to_grid_and_clear_but_no_undo(overlay):
     toolbar = overlay._toolbar
     texts = [b.text() for b in toolbar.findChildren(QPushButton)]
-    assert texts == ["Sketch (S)", "Snap to grid (G)", "Clear (Ctrl+Alt+C)"]
+    assert texts == ["Sketch (S)", "Snap to grid (G)", "Pass through (P)", "Clear (Ctrl+Alt+C)"]
     assert toolbar.sketch_button.isCheckable() and toolbar.grid_button.isCheckable()
+    assert toolbar.pass_through_button.isCheckable()
     assert not hasattr(toolbar, "undo_requested")
 
 

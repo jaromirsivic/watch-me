@@ -198,6 +198,7 @@ DrawingNowProvider = Callable[[], dict[str, Any] | None]
 ClipboardProvider = Callable[[], str | None]
 BackgroundProvider = Callable[[], str | None]
 GridProvider = Callable[[], dict[str, int] | None]
+PassThroughProvider = Callable[[], bool | None]
 KEYPOINT_MIN_GAP_MS = 3000  # a keypoint can follow the previous one after three seconds
 
 
@@ -212,6 +213,7 @@ class _Tick:
     background: str | None = None
     grid: dict[str, int] | None = None
     grid_source: str | None = None
+    pass_through: bool | None = None
     clipboard: str | None = None
 
 
@@ -278,6 +280,14 @@ class Recorder:
         # Why the points snap (ui.overlay.DrawingOverlay.grid_source): "toggle" (Snap to
         # grid pressed) or "ctrl" (Ctrl held), None while not snapping; ``grid_source``.
         self.grid_source_provider: BackgroundProvider | None = None
+        # Pass through (ui.overlay.DrawingOverlay.pass_through_state): True while the live
+        # screens show through the drawing layer, False while it shows the screens as
+        # they were when drawing started, None while not drawing; `pass_through`.
+        self.pass_through_provider: PassThroughProvider | None = None
+        # Held around every grab of the screens: the drawing layer takes it while it hides
+        # itself from capture to grab the live screen (Pass through and zoom), so no
+        # recorded frame misses the drawings.
+        self.frame_lock = threading.Lock()
         # The text clipboard (ui.clipboard.ClipboardTracker.take): a text the user copied
         # since the previous tick (at most 65535 characters, "..." when cut), stored as
         # ``clipboard`` in the index line of this tick only; no other tick has it.
@@ -921,7 +931,14 @@ class Recorder:
                 tick.grid_source = grid_source_provider()
             except Exception:  # pragma: no cover - never let drawing data stop capture
                 log.exception("grid source provider failed")
-        tick.frames = self._grab_screens(grabber)
+        pass_through_provider = self.pass_through_provider
+        if pass_through_provider is not None:
+            try:
+                tick.pass_through = pass_through_provider()
+            except Exception:  # pragma: no cover - never let drawing data stop capture
+                log.exception("pass through provider failed")
+        with self.frame_lock:
+            tick.frames = self._grab_screens(grabber)
         clipboard_provider = self.clipboard_provider
         if clipboard_provider is not None and tick.frames:
             # Taken only when the tick is stored: the provider hands a text out once.
@@ -943,6 +960,7 @@ class Recorder:
             background=tick.background,
             grid=tick.grid,
             grid_source=tick.grid_source,
+            pass_through=tick.pass_through,
             clipboard=tick.clipboard,
             failed=[screen.id for screen in self.screens if screen.id not in grabbed],
         )

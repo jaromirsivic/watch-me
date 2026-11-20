@@ -12,7 +12,9 @@ before it:
 ``zoom``         the magnified regions of the drawing canvas
 ``background``   ``screen`` / ``sketch`` / null (not drawing)
 ``grid``         ``{screen id: spacing}`` while the points snap to a grid, else null
-``grid_source``  ``toggle`` / ``ctrl`` / null
+`grid_source`  `toggle` / `ctrl` / null
+`pass_through` true (the live screens show through the drawing layer) / false /
+                 null (not drawing)
 ``clipboard``    a text copied since the tick before - in that one tick only
 ``failed``       the screens that could not be grabbed at this tick - never carried on
 
@@ -47,6 +49,7 @@ _CARRIED: dict[str, Any] = {
     "background": None,
     "grid": None,
     "grid_source": None,
+    "pass_through": None,
 }
 
 
@@ -79,6 +82,7 @@ class TickState:
     background: str | None = None
     grid: dict[str, int] | None = None
     grid_source: str | None = None
+    pass_through: bool | None = None
     clipboard: str | None = None
     failed: tuple[str, ...] = ()
 
@@ -95,6 +99,7 @@ class TickState:
             "background": self.background,
             "grid": grid,
             "grid_source": self.grid_source if self.grid else None,
+            "pass_through": self.pass_through,
             "clipboard": self.clipboard,
         }
 
@@ -129,6 +134,7 @@ class TickIndexWriter:
         background: str | None = None,
         grid: dict[str, int] | None = None,
         grid_source: str | None = None,
+        pass_through: bool | None = None,
         clipboard: str | None = None,
         failed: list[str] | tuple[str, ...] = (),
     ) -> None:
@@ -142,6 +148,7 @@ class TickIndexWriter:
             "background": background,
             "grid": grid,
             "grid_source": grid_source if grid else None,
+            "pass_through": pass_through,
         }
         for key, value in state.items():
             if value != self._carried[key]:
@@ -251,6 +258,7 @@ class TickIndex:
                     background=carried["background"],
                     grid=carried["grid"],
                     grid_source=carried["grid_source"],
+                    pass_through=carried["pass_through"],
                     clipboard=line.get("clipboard"),
                     failed=tuple(line.get("failed") or ()),
                 )

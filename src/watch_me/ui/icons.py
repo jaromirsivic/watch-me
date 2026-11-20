@@ -221,6 +221,42 @@ def eraser_icon(size: int = 24, color: QColor | None = None) -> QIcon:
     return QIcon(_pixmap(size, draw))
 
 
+def _corner_brackets(ink: QColor, inward: bool):
+    """Four corner brackets (like a video player's full screen buttons): ``inward`` puts
+    each bracket's corner towards the middle (exit full screen), else at the icon's corner."""
+
+    def draw(p: QPainter, s: int) -> None:
+        pen = QPen(ink, max(1.5, s * 0.11))
+        pen.setCapStyle(Qt.PenCapStyle.SquareCap)
+        pen.setJoinStyle(Qt.PenJoinStyle.MiterJoin)
+        p.setPen(pen)
+        p.setBrush(Qt.BrushStyle.NoBrush)
+        edge, inner = s * 0.16, s * 0.40  # distance of the outer and the inner ends from a side
+        for sx in (1, -1):
+            for sy in (1, -1):
+
+                def at(x: float, y: float, sx: int = sx, sy: int = sy) -> QPointF:
+                    return QPointF(x if sx > 0 else s - x, y if sy > 0 else s - y)
+
+                # The arms end at the same points either way; only the corner moves.
+                corner = at(inner, inner) if inward else at(edge, edge)
+                p.drawPolyline(QPolygonF([at(edge, inner), corner, at(inner, edge)]))
+
+    return draw
+
+
+def expand_icon(size: int = 24, color: QColor | None = None) -> QIcon:
+    """Four corner brackets at the icon's corners: restore (expand) a minimized window."""
+    ink = QColor(color) if color is not None else _button_text_color()
+    return QIcon(_pixmap(size, _corner_brackets(ink, inward=False)))
+
+
+def collapse_icon(size: int = 24, color: QColor | None = None) -> QIcon:
+    """Four corner brackets pointing to the middle: minimize (collapse) a window."""
+    ink = QColor(color) if color is not None else _button_text_color()
+    return QIcon(_pixmap(size, _corner_brackets(ink, inward=True)))
+
+
 def process_icon(size: int = 24) -> QIcon:
     """A white check mark on a green disc: finish and process the recording."""
 

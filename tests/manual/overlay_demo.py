@@ -3,8 +3,8 @@
 Opens the overlay on every screen with the floating toolbar on the primary screen.
 Try the tools (rectangle, ellipse, line, brush, arrow, eraser), Shift with them (square,
 circle, closed brush shape, connected lines), lines and arrows across monitors, the
-palette, Sketch (S), Snap to grid (G), Clear (Ctrl+Alt+C) and leave with Esc or the
-toolbar's cross; the script then exits. Take a screenshot while drawing (for example
+palette, Sketch (S), Snap to grid (G), Pass through (P), Clear (Ctrl+Alt+C) and leave
+with Esc or the toolbar's cross; the script then exits. Take a screenshot while drawing (for example
 with ``watch-me record``) to confirm the drawing is captured.
 """
 

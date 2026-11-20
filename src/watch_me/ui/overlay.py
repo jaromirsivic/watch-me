@@ -10,7 +10,9 @@ below it.
 
 A small floating toolbar (top-left of the primary screen at first; drag its title bar
 to move it whatever tool is selected, the cross closes drawing mode; black outline,
-always sized to its contents) offers Sketch / Snap to grid / Clear on the first row, the
+always sized to its contents; the button left of the cross minimizes it to a smaller
+title bar and restores it, kept for every later drawing of the same recording) offers
+Sketch / Snap to grid / Pass through / Clear on the first row, the
 tools Rectangle / Ellipse / Line / Brush / Arrow / Eraser (icon and key only; rectangle
 is the default) on the second and the 9-color palette in one row below; every button
 names its shortcut in brackets. The left mouse button draws with the selected tool (the
@@ -29,7 +31,8 @@ stored with every shape.
 
 Keyboard shortcuts, in every Watch Me window while drawing: ``Esc`` close,
 ``Ctrl+Z`` undo and ``Ctrl+Y`` redo (nothing while Shift is held), ``Ctrl+Alt+C`` clear,
-``S`` sketch, ``G`` snap to grid, ``R`` / ``E`` / ``L`` / ``B`` / ``A`` / ``U``
+``S`` sketch, ``G`` snap to grid, ``P`` pass through, ``R`` / ``E`` / ``L`` / ``B`` /
+``A`` / ``U``
 select a tool, ``1``-``9`` a color. On the overlay windows also ``0`` resets the zoom.
 
 Shift (the eraser ignores it): an arrow - drawn with the Arrow tool or with the right
@@ -69,18 +72,25 @@ treat the pieces of one split shape as one.
 
 Flash border: when drawing mode starts (:meth:`DrawingOverlay.show`) a border of
 :func:`flash_border_px` (20 px or 1 % of the screen's longer side) flashes around every
-screen in red / dark red / red / dark red, 250 ms each, while the user may already draw.
-:meth:`DrawingOverlay.leave` (Draw, Ctrl+Space, Esc, the cross) removes the shapes and
-the sketch canvas at once, flashes green / dark green and only then hides the windows;
+screen in red / dark red / red / dark red, 125 ms each (0.5 s), while the user may
+already draw. :meth:`DrawingOverlay.leave` (Draw, Ctrl+Space, Esc, the cross) removes the
+shapes and the sketch canvas at once, flashes green / dark green / green / dark green
+just as fast (0.5 s) and only then hides the windows;
 meanwhile they swallow the mouse. The border is painted by the windows, not a shape: it
 shows in the recorded frames but never in the drawings, Undo or the timeline.
 
 Zoom: drawing mode works like a canvas. When it is entered, every screen is grabbed
-once; the mouse wheel zooms that screen's picture in (up to 800 %) around the cursor
-and back out to 100 %, and the middle mouse button pans while zoomed. At 100 % the live
-desktop shows through; zoomed, the frozen picture is shown magnified (and that is what
-the recording captures). On the sketch canvas the zoom works the same way on white.
-Shapes stay attached to the picture and keep their on-screen stroke width.
+once and that picture is shown (a video seems to stand still); the mouse wheel zooms it
+in (up to 800 %) around the cursor and back out to 100 %, and the middle mouse button
+pans while zoomed. On the sketch canvas the zoom works the same way on white. Shapes
+stay attached to the picture and keep their on-screen stroke width.
+
+Pass through (``P``, a button that stays pressed, pressed again whenever drawing mode
+starts): at 100 % the live desktop shows through the layer; zooming in first grabs the
+live screen without the layer (on Windows the windows are excluded from capture for
+the grab, under the recorder's frame lock so no recorded frame misses the drawings) and
+magnifies that picture; back at 100 % it is dropped. Released, the picture grabbed
+when drawing started comes back. What the recording captures is what is shown.
 
 All geometry is kept in Qt logical "canvas" coordinates of the window the shape was
 drawn in (the unzoomed screen); Qt maps them to physical pixels per screen (Windows
@@ -104,6 +114,7 @@ import math
 import sys
 import time
 from collections.abc import Callable
+from contextlib import AbstractContextManager, nullcontext
 from dataclasses import dataclass, field, replace
 from enum import StrEnum
 
@@ -124,6 +135,7 @@ from PySide6.QtGui import (
     QColor,
     QContextMenuEvent,
     QCursor,
+    QFont,
     QGuiApplication,
     QKeyEvent,
     QKeySequence,
@@ -159,9 +171,11 @@ from watch_me.core.stroke import add_point
 
 from .icons import (
     arrow_icon,
+    collapse_icon,
     draw_icon,
     ellipse_icon,
     eraser_icon,
+    expand_icon,
     line_icon,
     rectangle_icon,
 )
@@ -181,6 +195,8 @@ TOOLBAR_RAISE_DELAYS_MS = (0, 150)  # re-raise the toolbar after window activati
 PALETTE_COLUMNS = 9  # the 9 colors are shown in one row
 TOOL_ICON_SIZE = 18  # logical pixels of the tool icons
 TOOL_ICON_INK = QColor("#000000")  # the toolbar has fixed light colors in every theme
+COLLAPSE_ICON_SIZE = 12  # logical pixels of the minimize / restore icon in the title bar
+COLLAPSED_TITLE_SHRINK_PT = 1.5  # the collapsed title bar uses a smaller title font
 ERASER_TOLERANCE = 6.0  # on-screen pixels around a shape's line that the eraser hits
 SKETCH_COLOR = QColor("#FFFFFF")  # the sketch canvas
 GRID_COLOR = QColor("#E2E2E2")  # the snapping grid on the sketch canvas (Ctrl held)
@@ -193,16 +209,19 @@ SHIFT_POLL_MS = 30  # how often Shift and Ctrl are polled while the overlay is s
 SKETCH_SHORTCUT = "S"
 SKETCH_LABEL = "Sketch"  # pressed while the white canvas is shown
 GRID_LABEL = "Snap to grid"  # pressed while points snap to the grid (as with Ctrl held)
+PASS_THROUGH_SHORTCUT = "P"  # a plain key like Sketch (S), only while drawing
+PASS_THROUGH_LABEL = "Pass through"  # pressed while the live screens show through
 # The border flashed around every screen when drawing mode starts and ends (not a shape).
 FLASH_MIN_PX = 20  # border thickness in pixels of the screen, at least ...
 FLASH_SCREEN_RATIO = 0.01  # ... or 1 % of the screen's longer side, whichever is more
-FLASH_STEP_MS = 250  # how long each color of the flash is shown
+FLASH_STEP_MS = 125  # how long each color of the flash is shown (4 steps = 0.5 s)
 FLASH_RED = QColor("#FF0000")
 FLASH_DARK_RED = QColor("#8B0000")
 FLASH_GREEN = QColor("#00E000")
 FLASH_DARK_GREEN = QColor("#006400")
 OPEN_FLASH = (FLASH_RED, FLASH_DARK_RED, FLASH_RED, FLASH_DARK_RED)  # drawing starts
-CLOSE_FLASH = (FLASH_GREEN, FLASH_DARK_GREEN)  # drawing ends; the overlay then disappears
+# Drawing ends (the overlay then disappears): as long and as fast as the red flash.
+CLOSE_FLASH = (FLASH_GREEN, FLASH_DARK_GREEN, FLASH_GREEN, FLASH_DARK_GREEN)
 
 
 def flash_border_px(width: int, height: int) -> int:
@@ -644,6 +663,8 @@ class OverlayWindow(QWidget):
         self._shapes: list[Shape] = []  # canvas coordinates
         self._current: Shape | None = None
         self._snapshot: QPixmap | None = None  # the screen as it was when drawing started
+        # Pass through on: the live screen frozen when zooming in started (None at 100 %).
+        self._live_snapshot: QPixmap | None = None
         self._zoom = MIN_ZOOM
         self._offset = QPointF(0.0, 0.0)  # canvas point shown at the window's top-left
         self._pan_anchor: tuple[QPointF, QPointF] | None = None  # (view press, offset)
@@ -752,6 +773,25 @@ class OverlayWindow(QWidget):
     def has_snapshot(self) -> bool:
         return self._snapshot is not None
 
+    def set_live_snapshot(self, pixmap: QPixmap | None) -> None:
+        """The live screen frozen for zooming with Pass through on (``None``: none)."""
+        self._live_snapshot = pixmap if pixmap is not None and not pixmap.isNull() else None
+        self.update()
+
+    def has_live_snapshot(self) -> bool:
+        return self._live_snapshot is not None
+
+    def picture(self) -> QPixmap | None:
+        """The picture shown behind the shapes (sketch canvas aside): with Pass through
+        off the screen as it was when drawing started, zoomed or not; with Pass through on
+        nothing at 100 % (the live screen shows through) and, zoomed, the live screen as
+        it was when zooming in started (the start picture when that grab failed)."""
+        if self._controller.pass_through:
+            if self._zoom == MIN_ZOOM:
+                return None
+            return self._live_snapshot or self._snapshot
+        return self._snapshot
+
     def can_zoom(self) -> bool:
         """Zooming needs a picture to magnify: the screen grab, or the white sketch canvas."""
         return self._snapshot is not None or self._controller.sketch
@@ -760,13 +800,20 @@ class OverlayWindow(QWidget):
         self.set_zoom(MIN_ZOOM)
 
     def set_zoom(self, zoom: float, anchor: QPointF | None = None) -> None:
-        """Zoom to ``zoom`` keeping the canvas point under ``anchor`` (view coords) in place."""
+        """Zoom to ``zoom`` keeping the canvas point under ``anchor`` (view coords) in place.
+
+        With Pass through on, zooming in from 100 % first freezes the live screen (that
+        picture is magnified); back at 100 % it is dropped and the live screen shows."""
         zoom = min(max(zoom, MIN_ZOOM), MAX_ZOOM)
         if not self.can_zoom():
             zoom = MIN_ZOOM
         if anchor is None:
             anchor = QPointF(self.width() / 2, self.height() / 2)
         fixed = self.to_canvas(anchor)
+        if zoom == MIN_ZOOM:
+            self._live_snapshot = None
+        elif self._zoom == MIN_ZOOM and self._controller.pass_through:
+            self._live_snapshot = self._controller._grab_live(self)
         self._zoom = zoom
         self._set_offset(QPointF(fixed.x() - anchor.x() / zoom, fixed.y() - anchor.y() / zoom))
         if zoom == MIN_ZOOM and self._pan_anchor is not None:
@@ -954,15 +1001,19 @@ class OverlayWindow(QWidget):
         # 1/255 keeps every pixel "owned" by the overlay while being invisible to the
         # eye and to screen capture (at most +-1 on a channel).
         painter.fillRect(self.rect(), HIT_TEST_FILL)
+        if self._controller._grabbing_live:
+            painter.end()  # the live screen is being grabbed without the drawing layer
+            return
         if self._controller.sketch:
             # Sketch: a plain white canvas hides the screen (zoomed or not).
             painter.fillRect(self.rect(), SKETCH_COLOR)
             if self._controller.snapping:
                 self._paint_grid(painter)
-        elif self._zoom > MIN_ZOOM and self._snapshot is not None:
-            # Zoomed: show the frozen picture magnified, with crisp (unsmoothed) pixels.
-            scale_x = self._snapshot.width() / max(1, self.width())
-            scale_y = self._snapshot.height() / max(1, self.height())
+        elif (picture := self.picture()) is not None:
+            # A frozen picture (see picture()), magnified while zoomed with crisp
+            # (unsmoothed) pixels; at 100 % it covers the screen 1:1.
+            scale_x = picture.width() / max(1, self.width())
+            scale_y = picture.height() / max(1, self.height())
             visible = self.visible_canvas_rect()
             source = QRectF(
                 visible.x() * scale_x,
@@ -970,7 +1021,7 @@ class OverlayWindow(QWidget):
                 visible.width() * scale_x,
                 visible.height() * scale_y,
             )
-            painter.drawPixmap(QRectF(self.rect()), self._snapshot, source)
+            painter.drawPixmap(QRectF(self.rect()), picture, source)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
         for shape in self.view_shapes():
             paint_shape(painter, shape)
@@ -1308,8 +1359,10 @@ class OverlayToolbar(QWidget):
     color_selected = Signal(object)  # PaletteColor
     sketch_requested = Signal()
     grid_requested = Signal()  # Snap to grid was clicked
+    pass_through_requested = Signal()  # Pass through was clicked
     clear_requested = Signal()
     close_requested = Signal()
+    collapse_requested = Signal()  # the minimize / restore button in the title bar
 
     def __init__(self) -> None:
         super().__init__(
@@ -1345,6 +1398,10 @@ class OverlayToolbar(QWidget):
             " background: transparent; border: none; padding: 1px 6px; color: #404040; }"
             "QWidget#overlayToolbar QToolButton#overlayToolbarCross:hover {"
             " background: #E81123; color: #FFFFFF; }"
+            "QWidget#overlayToolbar QToolButton#overlayToolbarCollapse {"
+            " background: transparent; border: none; padding: 1px 4px; }"
+            "QWidget#overlayToolbar QToolButton#overlayToolbarCollapse:hover {"
+            " background: #C4C4C4; }"
         )
 
         self._tool_buttons: dict[Tool, QToolButton] = {}
@@ -1375,6 +1432,17 @@ class OverlayToolbar(QWidget):
         title = QLabel("Drawing tools", self.header)
         title.setObjectName("overlayToolbarTitle")
         header.addWidget(title, 1)
+        self._header_layout = header
+        self._title_font = QFont(title.font())
+        # Minimize / restore: collapsed, only a smaller title bar stays (title, this
+        # button, the cross); the shortcuts keep working.
+        self.collapse_button = QToolButton(self.header)
+        self.collapse_button.setObjectName("overlayToolbarCollapse")
+        self.collapse_button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.collapse_button.setAutoRaise(True)
+        self.collapse_button.setCursor(Qt.CursorShape.ArrowCursor)
+        self.collapse_button.clicked.connect(self.collapse_requested.emit)
+        header.addWidget(self.collapse_button)
         self.close_cross = QToolButton(self.header)
         self.close_cross.setObjectName("overlayToolbarCross")
         self.close_cross.setText("✕")
@@ -1386,15 +1454,18 @@ class OverlayToolbar(QWidget):
         header.addWidget(self.close_cross)
         outer.addWidget(self.header)
 
-        root = QVBoxLayout()
+        # Everything under the title bar: hidden while the toolbar is collapsed.
+        self.body = QWidget(self)
+        root = QVBoxLayout(self.body)
         root.setContentsMargins(5, 4, 5, 5)
         root.setSpacing(4)
-        outer.addLayout(root)
+        outer.addWidget(self.body)
 
         # Every button shows its keyboard shortcut in brackets (the tools only that).
-        # Row 1: Sketch / Snap to grid / Clear, each two columns wide (Sketch and Snap to
-        # grid stay pressed while on); row 2: the six tools, one column each. Undo and
-        # Redo are the shortcuts Ctrl+Z and Ctrl+Y only.
+        # Row 1: Sketch / Snap to grid / Pass through / Clear, each as wide as its label
+        # (Sketch, Snap to grid and Pass through stay pressed while on); row 2: the six
+        # tools in equal columns, as wide as row 1 together. Undo and Redo are the
+        # shortcuts Ctrl+Z and Ctrl+Y only.
         buttons = QGridLayout()
         buttons.setSpacing(4)
         self.sketch_button = QPushButton(f"{SKETCH_LABEL} ({SKETCH_SHORTCUT})", self)
@@ -1409,17 +1480,32 @@ class OverlayToolbar(QWidget):
             f"Snap the points to the grid as while Ctrl is held ({GRID_SHORTCUT}); the grid "
             "shows on the sketch canvas. Press again to stop"
         )
+        self.pass_through_button = QPushButton(
+            f"{PASS_THROUGH_LABEL} ({PASS_THROUGH_SHORTCUT})", self
+        )
+        self.pass_through_button.setCheckable(True)
+        self.pass_through_button.setToolTip(
+            f"Pass through ({PASS_THROUGH_SHORTCUT}): see the live screens through the "
+            "drawing layer (videos keep playing; on whenever drawing starts); zooming in "
+            "freezes the live picture. Off: the layer shows the screens as they were when "
+            "drawing started"
+        )
         self.clear_button = QPushButton(f"Clear ({CLEAR_SHORTCUT})", self)
         self.clear_button.setToolTip(f"Remove all drawings ({CLEAR_SHORTCUT})")
         actions: list[tuple[QPushButton, Signal]] = [
             (self.sketch_button, self.sketch_requested),
             (self.grid_button, self.grid_requested),
+            (self.pass_through_button, self.pass_through_requested),
             (self.clear_button, self.clear_requested),
         ]
-        for column, (button, signal) in enumerate(actions):
+        action_row = QHBoxLayout()
+        action_row.setSpacing(buttons.spacing())
+        for button, signal in actions:
             button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+            button.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
             button.clicked.connect(signal.emit)
-            buttons.addWidget(button, 0, 2 * column, 1, 2)
+            # Each as wide as its label needs; spare width is shared in that ratio.
+            action_row.addWidget(button, button.sizeHint().width())
         self._action_buttons = [button for button, _signal in actions]
         self._title = title
         icons = {
@@ -1446,15 +1532,21 @@ class OverlayToolbar(QWidget):
             button.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
             button.clicked.connect(lambda _checked=False, t=tool: self.tool_selected.emit(t))
             group.addButton(button)
-            buttons.addWidget(button, 1, column)
+            buttons.addWidget(button, 0, column)
             self._tool_buttons[tool] = button
-        # Equal columns: wide enough for every tool and for half of every action button.
+        # Equal tool columns, wide enough for every tool and together for the action row
+        # (the four action buttons side by side, as wide as their labels need).
+        spacing = buttons.spacing()
+        columns = len(TOOL_BUTTONS)
+        actions_width = sum(b.sizeHint().width() for b, _signal in actions)
+        actions_width += (len(actions) - 1) * spacing
         widest_tool = max(b.sizeHint().width() for b in self._tool_buttons.values())
-        widest_action = max(b.sizeHint().width() for b, _signal in actions)
-        column_width = max(widest_tool, (widest_action - buttons.spacing() + 1) // 2)
-        for column in range(len(TOOL_BUTTONS)):
+        needed = actions_width - (columns - 1) * spacing
+        column_width = max(widest_tool, -(-needed // columns))  # ceiling division
+        for column in range(columns):
             buttons.setColumnStretch(column, 1)
             buttons.setColumnMinimumWidth(column, column_width)
+        root.addLayout(action_row)
         root.addLayout(buttons)
 
         # The palette: one row of nine swatches, each labelled with its number key.
@@ -1474,6 +1566,41 @@ class OverlayToolbar(QWidget):
 
         self.set_tool(DEFAULT_TOOL)
         self.set_color(DEFAULT_COLOR.hex)
+        self._collapsed = False
+        self.set_collapsed(False)
+
+    # -- minimizing the toolbar -----------------------------------------------------
+
+    @property
+    def collapsed(self) -> bool:
+        """True while only the (smaller) title bar is shown."""
+        return self._collapsed
+
+    def set_collapsed(self, collapsed: bool) -> None:
+        """Minimize (``True``) to a small title bar or restore the whole toolbar. The
+        top-left corner stays where it is; the toolbar resizes to its contents."""
+        self._collapsed = bool(collapsed)
+        self.body.setVisible(not self._collapsed)
+        font = QFont(self._title_font)
+        if self._collapsed:
+            font.setPointSizeF(max(6.0, font.pointSizeF() - COLLAPSED_TITLE_SHRINK_PT))
+            self._header_layout.setContentsMargins(4, 0, 0, 0)
+        else:
+            self._header_layout.setContentsMargins(6, 2, 2, 2)
+        self._title.setFont(font)
+        icon = expand_icon if self._collapsed else collapse_icon
+        self.collapse_button.setIcon(icon(COLLAPSE_ICON_SIZE, TOOL_ICON_INK))
+        self.collapse_button.setIconSize(QSize(COLLAPSE_ICON_SIZE, COLLAPSE_ICON_SIZE))
+        self.collapse_button.setToolTip(
+            "Restore the drawing tools" if self._collapsed else "Minimize the drawing tools"
+        )
+        # The title bar's new margins and font first, then the toolbar fits its contents.
+        self._header_layout.activate()
+        self.header.adjustSize()
+        layout = self.layout()
+        if layout is not None:
+            layout.activate()
+        self.adjustSize()
 
     # -- moving the toolbar ---------------------------------------------------------
     # Clicks on buttons and swatches are consumed by them; a press anywhere else
@@ -1537,6 +1664,10 @@ class OverlayToolbar(QWidget):
     def set_grid_locked(self, locked: bool) -> None:
         """Snap to grid is pressed while the points snap without Ctrl."""
         self.grid_button.setChecked(bool(locked))
+
+    def set_pass_through(self, on: bool) -> None:
+        """Pass through is pressed while the live screens show through the layer."""
+        self.pass_through_button.setChecked(bool(on))
 
     def set_color(self, hex_value: str) -> None:
         self._current_hex = hex_value.upper()
@@ -1683,8 +1814,115 @@ class DrawingOverlay(QObject):
         self._flash_timer.timeout.connect(self._next_flash)
         self._leaving = False  # drawing ended, the overlay disappears after the green flash
         self._frozen = False  # the recording is paused: nothing can be changed
+        # The toolbar minimized to its title bar. Kept for every later show() of this
+        # overlay (one recording); a new recording creates a new overlay: restored.
+        self._toolbar_collapsed = False
+        # Pass through pressed: the live screens show through the layer (pressed whenever
+        # drawing mode starts; released with P: the screens as they were then are shown).
+        self._pass_through = True
+        # Grabs the live screen under a window without the drawing layer (replaceable in
+        # tests) and the recorder's lock around its screen grabs (set_capture_lock).
+        self._live_grabber: Callable[[OverlayWindow], QPixmap | None] = self._grab_live_screen
+        self._capture_lock: AbstractContextManager[object] | None = None
+        self._grabbing_live = False  # the windows paint nothing while the screen is grabbed
 
     # -- public API ---------------------------------------------------------------
+
+    @property
+    def pass_through(self) -> bool:
+        """Pass through is pressed: the live screens show through the drawing layer."""
+        return self._pass_through
+
+    def set_pass_through(self, on: bool) -> None:
+        """Press (``True``) or release Pass through. Pressed while zoomed, the live screen
+        is frozen at once and magnified; released, the start picture comes back."""
+        on = bool(on)
+        if on != self._pass_through:
+            self._pass_through = on
+            for window in self._windows:
+                if on and window.zoom > MIN_ZOOM:
+                    window.set_live_snapshot(self._grab_live(window))
+                else:
+                    window.set_live_snapshot(None)
+                window.update()
+            self._refresh_drawings()
+        if self._toolbar is not None:
+            self._toolbar.set_pass_through(self._pass_through)
+
+    def toggle_pass_through(self) -> None:
+        """The Pass through button or P (only while drawing)."""
+        if not self._visible:
+            if self._toolbar is not None:
+                self._toolbar.set_pass_through(self._pass_through)
+            return
+        self.set_pass_through(not self._pass_through)
+
+    def pass_through_state(self) -> bool | None:
+        """Pass through for the tick index: ``True`` / ``False`` while drawing, ``None``
+        while the overlay is hidden. Read by the recorder from its capture thread."""
+        if not self._visible:
+            return None
+        return self._pass_through
+
+    def set_capture_lock(self, lock: AbstractContextManager[object] | None) -> None:
+        """The recorder's lock around its screen grabs: held while the drawing layer is
+        hidden from capture for a live grab, so no recorded frame misses the drawings."""
+        self._capture_lock = lock
+
+    def _grab_live(self, window: OverlayWindow) -> QPixmap | None:
+        try:
+            return self._live_grabber(window)
+        except Exception:  # pragma: no cover - zooming must never break drawing
+            log.exception("grabbing the live screen failed")
+            return None
+
+    def _grab_live_screen(self, window: OverlayWindow) -> QPixmap | None:
+        """The live screen under ``window`` without the drawing layer. On Windows the
+        layer's windows are excluded from capture for the grab (nothing flickers);
+        elsewhere they paint nothing for a moment."""
+        screens = QGuiApplication.screens()
+        if not 0 <= window.screen_index < len(screens):
+            return None
+        screen = screens[window.screen_index]
+        lock = self._capture_lock if self._capture_lock is not None else nullcontext()
+        with lock:
+            if sys.platform == "win32":
+                from watch_me.platform.windows import set_window_capture_excluded
+
+                handles = [int(w.winId()) for w in self._windows if w.isVisible()]
+                excluded = [h for h in handles if set_window_capture_excluded(h, True)]
+                try:
+                    if len(excluded) == len(handles):
+                        return self._grab_screen(screen)
+                finally:
+                    for handle in excluded:
+                        set_window_capture_excluded(handle, False)
+            self._grabbing_live = True
+            try:
+                for other in self._windows:
+                    other.repaint()
+                return self._grab_screen(screen)
+            finally:
+                self._grabbing_live = False
+                for other in self._windows:
+                    other.update()
+
+    @property
+    def toolbar_collapsed(self) -> bool:
+        """True while the Drawing tools are minimized to their title bar."""
+        return self._toolbar_collapsed
+
+    def set_toolbar_collapsed(self, collapsed: bool) -> None:
+        """Minimize (``True``) or restore the Drawing tools; only the look changes, every
+        shortcut keeps working. Allowed while frozen (nothing is drawn or removed)."""
+        self._toolbar_collapsed = bool(collapsed)
+        if self._toolbar is not None:
+            self._toolbar.set_collapsed(self._toolbar_collapsed)
+            self._toolbar.raise_()
+
+    def toggle_toolbar_collapsed(self) -> None:
+        """The minimize / restore button in the toolbar's title bar."""
+        self.set_toolbar_collapsed(not self._toolbar_collapsed)
 
     @property
     def frozen(self) -> bool:
@@ -1861,10 +2099,14 @@ class DrawingOverlay(QObject):
             # Snap to grid.
             self._set_sketch_state(False)
             self.set_grid_locked(False)
-            # Grab every screen before the overlay covers it: the picture to zoom into.
+            # Grab every screen before the overlay covers it: the picture shown with Pass
+            # through off (P) and zoomed into when the live grab fails.
             for window, screen in zip(self._windows, screens, strict=True):
                 window.set_snapshot(self._grab_screen(screen))
                 window.reset_zoom()
+            # ...and with Pass through on (after the zoom reset: nothing to freeze at
+            # 100 %): every drawing session starts showing the live screens.
+            self.set_pass_through(True)
         for window, screen in zip(self._windows, screens, strict=True):
             self._place_window(window, screen)
             window.show()
@@ -2132,12 +2374,16 @@ class DrawingOverlay(QObject):
             toolbar.color_selected.connect(self.set_color)
             toolbar.sketch_requested.connect(self._sketch_clicked)
             toolbar.grid_requested.connect(self.toggle_grid_lock)
+            toolbar.pass_through_requested.connect(self.toggle_pass_through)
             toolbar.clear_requested.connect(self.clear)
             toolbar.close_requested.connect(self._user_close)
+            toolbar.collapse_requested.connect(self.toggle_toolbar_collapsed)
             toolbar.set_tool(self._tool)
             toolbar.set_color(self._color.name().upper())
             toolbar.set_sketch(self._sketch)
             toolbar.set_grid_locked(self._grid_locked)
+            toolbar.set_pass_through(self._pass_through)
+            toolbar.set_collapsed(self._toolbar_collapsed)
             self._create_shortcuts(toolbar)
             self._toolbar = toolbar
         return self._toolbar
@@ -2608,6 +2854,7 @@ class DrawingOverlay(QObject):
             (QKeySequence(UNDO_SHORTCUT), self.undo),
             (QKeySequence(REDO_SHORTCUT), self.redo),
             (QKeySequence(GRID_SHORTCUT), self.toggle_grid_lock),
+            (QKeySequence(PASS_THROUGH_SHORTCUT), self.toggle_pass_through),
             (QKeySequence(CLEAR_SHORTCUT), self.clear),
             (QKeySequence(SKETCH_SHORTCUT), self.toggle_sketch),
         ]

@@ -107,8 +107,11 @@ timeline with -/+ (the playhead stays in the middle); click a screen track to ch
 what is previewed and exported. The bottom row holds **Auto process**, the green
 **Process** (Ctrl+Enter), **Instructions** (Ctrl+I: the master instructions for you,
 stored in `instructions.txt`, empty by default; a bullet on the button marks stored
-ones; the templates **Draft Intent**, **Create Plan** and **Implement** fill the box
-with a ready-made instruction), at the right edge. Right-click a recording for **Render Video...**
+ones; a combo box above the text chooses **Custom**, the default, or one of the templates
+**Draft Intent**, **Create Plan** and **Implement**, which fill the box with a ready-made
+instruction; Custom clears the box and a template replaces its text, each after a
+confirmation when the box holds text, and editing a template by hand switches it to
+Custom), at the right edge. Right-click a recording for **Render Video...**
 (above Archive Video): pick the screen and the MP4 file (`Select File Name`), and the
 cropped range renders in the background with `RENDERING...` on the row; one video at a
 time, **Cancel Rendering** on that row stops it. **Cancel Archiving** (below Archive

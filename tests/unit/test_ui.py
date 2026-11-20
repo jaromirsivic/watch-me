@@ -595,7 +595,7 @@ def test_settings_dialog_order_and_values(qtbot, tmp_path: Path, monkeypatch):
     # Four sections separated by thin lines, no headings; a thicker line above Save.
     assert [row(i) for i in range(form.rowCount())] == [
         "Theme",
-        "Minimize to Tray",
+        "Start Minimized",
         "--1--",
         "Capture Interval",
         "Image Format",
@@ -617,10 +617,16 @@ def test_settings_dialog_order_and_values(qtbot, tmp_path: Path, monkeypatch):
     assert SETTINGS_FOOTER_LINE_PX > 1
     assert dialog.theme_combo.currentData() == "light"  # the default
     assert [dialog.theme_combo.itemText(i) for i in range(2)] == ["Light", "Dark"]
-    assert dialog.tray_combo.currentData() is False  # the default
-    assert [dialog.tray_combo.itemText(i) for i in range(2)] == [
-        "Do not minimize to tray",
+    assert dialog.start_minimized_combo.currentData() == "none"  # the default
+    assert [dialog.start_minimized_combo.itemText(i) for i in range(3)] == [
+        "Do not minimize",
+        "Minimize to taskbar",
         "Minimize to tray",
+    ]
+    assert [dialog.start_minimized_combo.itemData(i) for i in range(3)] == [
+        "none",
+        "taskbar",
+        "tray",
     ]
     # The folder alone, then Browse... and Open Folder left-aligned on the row under it.
     assert form.itemAt(15, form.ItemRole.FieldRole).widget() is dialog.folder_edit
@@ -985,14 +991,17 @@ def test_minimize_hides_to_tray_and_back(window, monkeypatch, qtbot):
     monkeypatch.setattr(
         QSystemTrayIcon, "showMessage", lambda self, title, text, *a: messages.append(text)
     )
-    window.controller.config = window.controller.config.with_values(minimize_to_tray=True)
-    window.record_button.click()
-    window.setWindowState(cw.Qt.WindowState.WindowMinimized)  # the title bar's button
-    qtbot.waitUntil(lambda: window.in_tray, timeout=1000)
-    assert not window.isVisible() and not window.isMinimized()
+    window.controller.config = window.controller.config.with_values(start_minimized="tray")
+    window.record_button.click()  # Record hides the window to the tray
+    assert window.in_tray and not window.isVisible()
     assert messages and "Ctrl+Alt+S" in messages[0]
     assert window.hotkeys.enabled  # the shortcuts keep working while hidden
     # A left or a right click on the tray icon shows the window again.
+    window._on_tray_activated(QSystemTrayIcon.ActivationReason.Context)
+    assert window.isVisible() and not window.in_tray
+    window.setWindowState(cw.Qt.WindowState.WindowMinimized)  # the title bar's button
+    qtbot.waitUntil(lambda: window.in_tray, timeout=1000)
+    assert not window.isVisible() and not window.isMinimized()
     window._on_tray_activated(QSystemTrayIcon.ActivationReason.Context)
     assert window.isVisible() and not window.in_tray
     assert window.hide_to_tray()
@@ -1006,30 +1015,96 @@ def test_minimize_hides_to_tray_and_back(window, monkeypatch, qtbot):
     assert not window.in_tray and not window.controller.recording
 
 
-def test_minimize_stays_on_the_taskbar_unless_minimize_to_tray(window, monkeypatch, qtbot):
+@pytest.mark.parametrize("mode", ["none", "taskbar"])
+def test_minimize_button_stays_on_the_taskbar_unless_tray(window, monkeypatch, qtbot, mode):
     from PySide6.QtWidgets import QSystemTrayIcon
 
     monkeypatch.setattr(QSystemTrayIcon, "isSystemTrayAvailable", staticmethod(lambda: True))
     monkeypatch.setattr(QSystemTrayIcon, "showMessage", lambda self, *a: None)
-    assert window.controller.config.minimize_to_tray is False  # the default
+    assert Config().start_minimized == "none"  # the default
+    window.controller.config = window.controller.config.with_values(start_minimized=mode)
     window.setWindowState(cw.Qt.WindowState.WindowMinimized)
     qtbot.wait(50)
-    assert window.isMinimized() and not window.in_tray  # Do not minimize to tray
+    assert window.isMinimized() and not window.in_tray
 
 
-def test_settings_saves_minimize_to_tray(qtbot, tmp_path: Path):
+def test_record_leaves_the_window_with_do_not_minimize(window, monkeypatch, qtbot):
+    from PySide6.QtWidgets import QSystemTrayIcon
+
+    monkeypatch.setattr(QSystemTrayIcon, "isSystemTrayAvailable", staticmethod(lambda: True))
+    window.record_button.click()
+    qtbot.wait(50)
+    assert window.controller.recording
+    assert window.isVisible() and not window.isMinimized() and not window.in_tray
+
+
+@pytest.mark.parametrize("tray_available", [False, True])
+def test_record_minimizes_to_the_taskbar(window, monkeypatch, qtbot, tray_available):
+    """Minimize to taskbar, or Minimize to tray where the desktop has no system tray."""
+    from PySide6.QtWidgets import QSystemTrayIcon
+
+    monkeypatch.setattr(
+        QSystemTrayIcon, "isSystemTrayAvailable", staticmethod(lambda: tray_available)
+    )
+    monkeypatch.setattr(QSystemTrayIcon, "showMessage", lambda self, *a: None)
+    mode = "taskbar" if tray_available else "tray"
+    window.controller.config = window.controller.config.with_values(start_minimized=mode)
+    window.record_button.click()
+    qtbot.wait(50)
+    assert window.controller.recording
+    assert window.isMinimized() and not window.in_tray
+
+
+def test_stop_brings_the_window_back_and_continue_does_not_minimize(window, monkeypatch, qtbot):
+    from PySide6.QtWidgets import QSystemTrayIcon
+
+    monkeypatch.setattr(QSystemTrayIcon, "isSystemTrayAvailable", staticmethod(lambda: True))
+    monkeypatch.setattr(QSystemTrayIcon, "showMessage", lambda self, *a: None)
+    for mode in ("taskbar", "tray"):
+        window.controller.config = window.controller.config.with_values(start_minimized=mode)
+        if window.controller.recording:
+            window._minimize_after_record()  # as after Record
+        else:
+            window.record_button.click()
+        qtbot.wait(50)
+        assert window.isMinimized() or window.in_tray
+        _auto_answer_stop(monkeypatch, StopChoice.CONTINUE)
+        window._stop_by_shortcut()
+        qtbot.wait(50)
+        # Stop showed the window with its question; Continue Recording leaves it shown.
+        assert window.controller.recording
+        assert window.isVisible() and not window.isMinimized() and not window.in_tray
+
+
+def test_resume_does_not_minimize(window, monkeypatch, qtbot):
+    from PySide6.QtWidgets import QSystemTrayIcon
+
+    monkeypatch.setattr(QSystemTrayIcon, "isSystemTrayAvailable", staticmethod(lambda: True))
+    window.record_button.click()  # Do not minimize
+    window.controller.config = window.controller.config.with_values(start_minimized="taskbar")
+    window.pause_button.click()
+    window.pause_button.click()
+    qtbot.wait(50)
+    assert window.isVisible() and not window.isMinimized()
+
+
+@pytest.mark.parametrize("mode", ["none", "taskbar", "tray"])
+def test_settings_saves_start_minimized(qtbot, tmp_path: Path, mode):
     from watch_me.core.config import load_config
 
     config_file = tmp_path / "config.json"
-    dialog = SettingsDialog(Config(recording_folder=tmp_path), config_file=config_file)
+    dialog = SettingsDialog(
+        Config(recording_folder=tmp_path, start_minimized="taskbar" if mode == "none" else "none"),
+        config_file=config_file,
+    )
     qtbot.addWidget(dialog)
-    dialog.tray_combo.setCurrentIndex(dialog.tray_combo.findData(True))
+    dialog.start_minimized_combo.setCurrentIndex(dialog.start_minimized_combo.findData(mode))
     dialog._save()
-    assert dialog.result_config is not None and dialog.result_config.minimize_to_tray
-    assert load_config(config_file).minimize_to_tray is True
+    assert dialog.result_config is not None and dialog.result_config.start_minimized == mode
+    assert load_config(config_file).start_minimized == mode
     dialog = SettingsDialog(load_config(config_file), config_file=config_file)
     qtbot.addWidget(dialog)
-    assert dialog.tray_combo.currentData() is True
+    assert dialog.start_minimized_combo.currentData() == mode
 
 
 def test_hide_to_tray_without_a_tray(window, monkeypatch):

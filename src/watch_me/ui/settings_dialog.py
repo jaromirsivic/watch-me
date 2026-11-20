@@ -5,9 +5,10 @@ The rows form four sections separated by thin lines (no headings):
 1. general - **Theme** of the user interface (Light, the default, or Dark), shared by the
    recorder and the Watch Me Video Editor (``theme`` in ``config.json``; the editor's sun /
    moon button changes the same setting; choosing one applies it at once, Save keeps it,
-   Cancel brings the previous one back), and **Minimize to Tray** (what the minimize
-   button of the control window does: *Do not minimize to tray*, the default, minimizes
-   it to the taskbar; *Minimize to tray* hides it behind a tray icon);
+   Cancel brings the previous one back), and **Start Minimized** (what happens to the
+   control window when Record is pressed: *Do not minimize*, the default, leaves it;
+   *Minimize to taskbar* minimizes it; *Minimize to tray* hides it behind a tray icon,
+   and then the minimize button of its title bar hides it to the tray too);
 2. video - Capture Interval, Image Format, JPEG Quality;
 3. audio - Audio Input, Live Transcription, Computer Audio;
 4. recording options - Mouse, Auto Stop Recording, Archive After, Drawing Grid and the
@@ -82,14 +83,18 @@ SYSTEM_DEFAULT_LABEL = "System default input"
 # section lines, 3 px reads as the thicker one.
 SETTINGS_FOOTER_LINE_PX = 3
 
-MINIMIZE_TO_TRAY_CHOICES = (
-    (False, "Do not minimize to tray"),
-    (True, "Minimize to tray"),
+START_MINIMIZED_LABELS = (
+    ("none", "Do not minimize"),
+    ("taskbar", "Minimize to taskbar"),
+    ("tray", "Minimize to tray"),
 )
-MINIMIZE_TO_TRAY_TOOLTIP = (
-    "What the minimize button of the Watch Me Recorder window does: minimize it to the taskbar "
-    "(the default), or hide it behind an icon in the system tray (a click on the icon "
-    "shows it again). The Watch Me Video Editor always minimizes to the taskbar."
+START_MINIMIZED_TOOLTIP = (
+    "What happens to the Watch Me Recorder window when you press Record (not after "
+    "Continue Recording or Resume): it stays where it is (the default), is minimized to "
+    "the taskbar, or is hidden behind an icon in the system tray (a click on the icon "
+    "shows it again). With Minimize to tray the window's minimize button hides it to the "
+    "tray too. It comes back when the recording stops. The Watch Me Video Editor always "
+    "minimizes to the taskbar."
 )
 
 THEME_CHOICES = (("light", "Light"), ("dark", "Dark"))
@@ -145,14 +150,16 @@ class SettingsDialog(QDialog):
         self.theme_combo.currentIndexChanged.connect(self._preview_theme)
         form.addRow("Theme", self.theme_combo)
 
-        # Minimize to Tray: what the minimize button of the control window does (only
-        # the recorder; the editor always minimizes normally)
-        self.tray_combo = QComboBox()
-        for value, label in MINIMIZE_TO_TRAY_CHOICES:
-            self.tray_combo.addItem(label, value)
-        self.tray_combo.setCurrentIndex(max(0, self.tray_combo.findData(config.minimize_to_tray)))
-        self.tray_combo.setToolTip(MINIMIZE_TO_TRAY_TOOLTIP)
-        form.addRow("Minimize to Tray", self.tray_combo)
+        # Start Minimized: the control window after Record (only the recorder; the
+        # editor always minimizes normally)
+        self.start_minimized_combo = QComboBox()
+        for value, label in START_MINIMIZED_LABELS:
+            self.start_minimized_combo.addItem(label, value)
+        self.start_minimized_combo.setCurrentIndex(
+            max(0, self.start_minimized_combo.findData(config.start_minimized))
+        )
+        self.start_minimized_combo.setToolTip(START_MINIMIZED_TOOLTIP)
+        form.addRow("Start Minimized", self.start_minimized_combo)
 
         self._add_separator(form)
 
@@ -392,7 +399,7 @@ class SettingsDialog(QDialog):
         data.update(
             {
                 "theme": self.theme_combo.currentData(),
-                "minimize_to_tray": bool(self.tray_combo.currentData()),
+                "start_minimized": self.start_minimized_combo.currentData(),
                 "recording_folder": self.folder_edit.text().strip(),
                 "capture_interval_ms": self.interval_spin.value(),
                 "image_format": self.format_combo.currentData(),
@@ -427,7 +434,7 @@ class SettingsDialog(QDialog):
 
 __all__ = [
     "ARCHIVE_NEVER_TEXT",
-    "MINIMIZE_TO_TRAY_CHOICES",
+    "START_MINIMIZED_LABELS",
     "SETTINGS_FOOTER_LINE_PX",
     "THEME_CHOICES",
     "SettingsDialog",

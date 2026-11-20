@@ -77,6 +77,14 @@ LEGEND = (
     "between - the device was unplugged or stopped - so that track holds silence there and "
     "missing speech is not the user's silence."
 )
+# Added to the legend only for recordings that store Pass through (newer recordings).
+PASS_THROUGH_LEGEND = (
+    "While drawing with PASS THROUGH on (it is switched on whenever drawing starts), the "
+    "frames show the live screens, and a ZOOM shows the screen frozen when that zoom "
+    "started. With PASS THROUGH off (the user pressed P) the drawing layer shows the "
+    "screens as they were when drawing started, so the frames show a still picture (a "
+    "video stands still, a menu closed meanwhile is still visible)."
+)
 # Added to the legend only when the lower narration track has subtitles in the range.
 LOWER_TRACK_LEGEND = (
     "SAY [lower track]: a subtitle the user moved to the second (lower) subtitle track "
@@ -663,6 +671,53 @@ def _grid_events(ticks: _Ticks, window: Crop) -> list[_Event]:
     return events
 
 
+def _has_pass_through(ticks: _Ticks) -> bool:
+    """The recording stores Pass through (made since the button exists) and was drawn on."""
+    return any(isinstance(sidecar.get("pass_through"), bool) for sidecar in ticks.data)
+
+
+def _pass_through_events(ticks: _Ticks, window: Crop) -> list[_Event]:
+    """``PASS THROUGH on`` / ``off``: the Pass through button (P) while drawing (sidecar
+    ``pass_through``: True live screens, False the screens as they were when drawing
+    started, absent or None while not drawing and in recordings made before it existed)."""
+    events: list[_Event] = []
+    previous: bool | None = None
+    drawing_since: int | None = None
+    on_since: int | None = None
+    opening = True
+    for time_ms, sidecar in zip(ticks.times, ticks.data, strict=True):
+        raw = sidecar.get("pass_through")
+        now = raw if isinstance(raw, bool) else None
+        if previous is None and now is not None:
+            drawing_since = time_ms
+        if now is True and previous is not True:
+            at = max(time_ms, window.start_ms)
+            if at <= window.end_ms:
+                early = " (switched on before the range)" if opening and time_ms < at else ""
+                events.append(
+                    _Event(
+                        at,
+                        1,
+                        f"{at} PASS THROUGH on: the drawing layer shows the live screens "
+                        f"(a video keeps playing; zooming in freezes the screen as it is "
+                        f"then){early}",
+                    )
+                )
+            on_since = time_ms
+        elif previous is True and now is not True and window.start_ms <= time_ms <= window.end_ms:
+            if now is False:
+                text = (
+                    f"{time_ms} PASS THROUGH off: the drawing layer shows the screens as "
+                    f"they were at {drawing_since} (drawing started) again; live since {on_since}"
+                )
+            else:
+                text = f"{time_ms} PASS THROUGH off (drawing layer closed; live since {on_since})"
+            events.append(_Event(time_ms, 1, text))
+        previous = now
+        opening = False
+    return events
+
+
 def _screen_events(ticks: _Ticks, window: Crop) -> tuple[list[_Event], dict[str, int]]:
     """Shapes, sketch canvas, clipboard, cursor screen changes and zoom in ``window``."""
     events, counts = _shape_events(ticks, window)
@@ -670,6 +725,9 @@ def _screen_events(ticks: _Ticks, window: Crop) -> tuple[list[_Event], dict[str,
     grid_events = _grid_events(ticks, window)
     events.extend(grid_events)
     counts["grid"] = sum(1 for e in grid_events if " GRID on" in e.text)
+    pass_through_events = _pass_through_events(ticks, window)
+    events.extend(pass_through_events)
+    counts["pass_through"] = sum(1 for e in pass_through_events if " PASS THROUGH on" in e.text)
     sketching = False
     sketch_since: int | None = None
     cursor_screen: str | None = None
@@ -839,6 +897,7 @@ def build_timeline(
         "capture_interval_ms": manifest.get("capture_interval_ms"),
         "counts": counts,
         "legend": LEGEND
+        + (" " + PASS_THROUGH_LEGEND if _has_pass_through(ticks) else "")
         + (" " + LOWER_TRACK_LEGEND if lower else "")
         + (" " + MOUSE_LEGEND if pointer.recorded else ""),
         "mouse": {"recorded": pointer.recorded, "mode": pointer.mode},

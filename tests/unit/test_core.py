@@ -58,6 +58,16 @@ def test_theme_is_light_or_dark(tmp_path: Path):
     assert saved.theme == "dark" and saved.jpeg_quality == 50
 
 
+def test_start_minimized_is_none_taskbar_or_tray():
+    assert cfg.Config().start_minimized == "none"
+    assert cfg.config_from_dict({}).start_minimized == "none"
+    for value in ("none", "taskbar", "Tray"):
+        assert cfg.config_from_dict({"start_minimized": value}).start_minimized == value.lower()
+    with pytest.raises(cfg.ConfigError) as exc:
+        cfg.config_from_dict({"start_minimized": True})
+    assert exc.value.field_name == "start_minimized"
+
+
 @pytest.mark.parametrize("value", [1, 250, 1000, "1000", 1.0])
 def test_capture_interval_bounds_accepted(value):
     assert cfg.config_from_dict({"capture_interval_ms": value}).capture_interval_ms == int(value)

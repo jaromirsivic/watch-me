@@ -2,11 +2,14 @@
 
 The window opens in the middle of the primary screen and cannot be resized. Before
 recording it shows **Record** and **Settings** (the light / dark theme of the user
-interface is chosen there, see :mod:`watch_me.ui.settings_dialog`). The minimize
-button of its title bar minimizes it to the taskbar; with **Minimize to Tray** chosen in
-Settings (``minimize_to_tray``) it hides it behind a tray icon (the application's camera
-icon) instead and says in a balloon how to stop; a left or right click on the icon brings
-the window back. Only this window does that: the editor always minimizes normally.
+interface is chosen there, see :mod:`watch_me.ui.settings_dialog`). **Start Minimized**
+in Settings (``start_minimized``) says what happens to it when Record is pressed (not
+after Continue Recording or Resume): it stays (``none``, the default), is minimized to
+the taskbar (``taskbar``) or hides behind a tray icon (``tray``: the application's camera
+icon, with a balloon saying how to stop; a left or right click on the icon brings the
+window back). The minimize button of its title bar minimizes it to the taskbar, or with
+``tray`` hides it to the tray as well. Stop brings the window back with its question.
+Only this window does that: the editor always minimizes normally.
 
 While recording the buttons stand in a grid of equally wide cells:
 
@@ -421,6 +424,17 @@ class ControlWindow(QWidget):
         self._timer.start()
         self._tick()
         self._fit_size()
+        self._minimize_after_record()
+
+    def _minimize_after_record(self) -> None:
+        """Start Minimized in Settings: after Record (only Record, not Continue Recording
+        or Resume) the window stays, is minimized to the taskbar or hides to the tray
+        (minimized to the taskbar where there is no system tray)."""
+        mode = self.controller.config.start_minimized
+        if mode == "tray" and QSystemTrayIcon.isSystemTrayAvailable():
+            self.hide_to_tray()
+        elif mode in ("taskbar", "tray"):
+            self.showMinimized()
 
     def _show_recording_controls(self, recording: bool) -> None:
         """Settings while idle; Pause and Keypoint in the first row and Mute Mic, Mute PC
@@ -735,6 +749,10 @@ class ControlWindow(QWidget):
             self.draw_button.toggle()
 
     def _on_stop(self) -> None:
+        if self.in_tray or self.isMinimized():
+            # Minimized after Record or by the user: the window comes back with the
+            # question (Continue Recording leaves it shown).
+            self.restore_from_tray()
         while True:
             dialog = StopDialog(self)
             self._stop_dialog = dialog
@@ -977,8 +995,8 @@ class ControlWindow(QWidget):
 
     def changeEvent(self, event: QEvent) -> None:
         """The minimize button of the title bar minimizes the window to the taskbar, or
-        with Minimize to Tray in Settings hides it to the tray (where there is no system
-        tray, the window is simply minimized)."""
+        with Start Minimized set to Minimize to tray in Settings hides it to the tray
+        (where there is no system tray, the window is simply minimized)."""
         super().changeEvent(event)
         if event.type() == QEvent.Type.WindowStateChange and self.isMinimized():
             QTimer.singleShot(0, self._minimized_to_tray)
@@ -986,8 +1004,8 @@ class ControlWindow(QWidget):
     def _minimized_to_tray(self) -> None:
         if not self.isMinimized() or self._done:
             return
-        if not self.controller.config.minimize_to_tray:
-            return  # Do not minimize to tray: stays minimized on the taskbar
+        if self.controller.config.start_minimized != "tray":
+            return  # not Minimize to tray: stays minimized on the taskbar
         if not QSystemTrayIcon.isSystemTrayAvailable():
             return  # stays minimized on the taskbar
         if self.hide_to_tray():
@@ -1054,6 +1072,8 @@ class ControlWindow(QWidget):
         background = getattr(self._overlay, "background", None)
         grid = getattr(self._overlay, "grid", None)
         grid_source = getattr(self._overlay, "grid_source", None)
+        pass_through_state = getattr(self._overlay, "pass_through_state", None)
+        set_capture_lock = getattr(self._overlay, "set_capture_lock", None)
         if set_screens is not None:
             set_screens(list(getattr(recorder, "screens", [])))
         clock = getattr(recorder, "clock", None)
@@ -1072,6 +1092,12 @@ class ControlWindow(QWidget):
             recorder.grid_provider = grid
         if grid_source is not None:
             recorder.grid_source_provider = grid_source
+        if pass_through_state is not None:
+            recorder.pass_through_provider = pass_through_state
+        frame_lock = getattr(recorder, "frame_lock", None)
+        if set_capture_lock is not None and frame_lock is not None:
+            # The live grab under the drawing layer must not overlap a recorded frame.
+            set_capture_lock(frame_lock)
 
     def _share_drawing_windows(self) -> None:
         """Tell the recorder which windows are the drawing layer (a click there is drawing,
@@ -1110,6 +1136,7 @@ class ControlWindow(QWidget):
             recorder.drawings_provider = None
             recorder.drawing_now_provider = None
             recorder.zoom_provider = None
+            recorder.pass_through_provider = None
             recorder.drawing_windows = frozenset()
         if self._overlay is not None:
             try:

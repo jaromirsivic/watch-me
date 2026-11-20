@@ -426,6 +426,7 @@ FRAME_STATE_KEYS = (
     "background",
     "grid",
     "grid_source",
+    "pass_through",
     "clipboard",
 )
 
@@ -455,6 +456,9 @@ class FrameRef:
         background: str | None = None  # "screen" / "sketch" while drawing, else None
         grid: int | None = None  # grid spacing (image pixels) while snapping, else None
         grid_source: str | None = None  # "ctrl" or "toggle" (Snap to grid) while snapping
+        # Pass through while drawing: True live screens, False the screens as at the start
+        # of drawing (None: not drawing, or a recording made before Pass through existed).
+        pass_through: bool | None = None
         clipboard: str | None = None  # text copied during the recording (see ui.clipboard)
         data = self.state or {}
         try:
@@ -477,6 +481,9 @@ class FrameRef:
                 grid = raw_grid
                 raw_source = data.get("grid_source")
                 grid_source = raw_source if isinstance(raw_source, str) else "ctrl"
+            raw_pass_through = data.get("pass_through")
+            if isinstance(raw_pass_through, bool):
+                pass_through = raw_pass_through
             raw_clipboard = data.get("clipboard")
             if isinstance(raw_clipboard, str):
                 clipboard = raw_clipboard
@@ -493,6 +500,7 @@ class FrameRef:
             "background": background,
             "grid": grid,
             "grid_source": grid_source,
+            "pass_through": pass_through,
             "clipboard": clipboard,
         }
         if not include_drawings:

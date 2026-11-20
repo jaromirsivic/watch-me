@@ -13,8 +13,11 @@ from PySide6.QtWidgets import QApplication
 
 from watch_me.core.screens import RawScreen, assign_screen_ids
 from watch_me.ui.overlay import (
+    CLOSE_FLASH,
     FLASH_RED,
+    FLASH_STEP_MS,
     MAX_ZOOM,
+    OPEN_FLASH,
     DrawingOverlay,
     OverlayWindow,
     Shape,
@@ -239,7 +242,7 @@ def test_shortcuts_work_from_other_windows_while_drawing(overlay, qtbot):
     drag(window, [(10, 10), (40, 40)])
     drag(window, [(50, 50), (80, 80)])
     shortcuts = {s.key().toString(): s for s in overlay._shortcuts}
-    keys = {"Esc", "Ctrl+Z", "Ctrl+Y", "G", "Ctrl+Alt+C", "S", "R", "E", "L", "B", "A", "U"}
+    keys = {"Esc", "Ctrl+Z", "Ctrl+Y", "G", "P", "Ctrl+Alt+C", "S", "R", "E", "L", "B", "A", "U"}
     assert set(shortcuts) == keys | {str(n) for n in range(1, 10)}
     assert all(
         s.context() == Qt.ShortcutContext.ApplicationShortcut and s.isEnabled()
@@ -442,8 +445,14 @@ def test_leave_clears_at_once_then_flashes_green_and_hides(overlay, qtbot):
     drag(window, [(200, 200), (260, 260)])
     assert overlay.shapes() == []
     colors = _flash_colors(overlay, qtbot, lambda: not window.isVisible())
-    assert colors == ["#00e000", "#006400", None]
+    assert colors == ["#00e000", "#006400", "#00e000", "#006400", None]
     assert not overlay.leaving and not overlay.is_visible()
+
+
+def test_both_flashes_last_half_a_second_at_the_same_pace():
+    assert FLASH_STEP_MS == 125
+    assert len(OPEN_FLASH) * FLASH_STEP_MS == 500
+    assert len(CLOSE_FLASH) * FLASH_STEP_MS == 500
 
 
 def test_show_during_leave_starts_again_with_red(overlay, qtbot):
@@ -613,7 +622,12 @@ def test_toolbar_order_cross_and_drag(overlay, qtbot):
     tools = [b.text() for b in toolbar.findChildren(QToolButton) if b.isCheckable()]
     assert tools == ["(R)", "(E)", "(L)", "(B)", "(A)", "(U)"]
     actions = [b.text() for b in toolbar.findChildren(QPushButton)]
-    assert actions == ["Sketch (S)", "Snap to grid (G)", "Clear (Ctrl+Alt+C)"]
+    assert actions == [
+        "Sketch (S)",
+        "Snap to grid (G)",
+        "Pass through (P)",
+        "Clear (Ctrl+Alt+C)",
+    ]
 
     # Drag the title bar: the toolbar follows and keeps its spot after hide/show.
     start = toolbar.pos()
@@ -661,7 +675,8 @@ def test_press_on_toolbar_spot_moves_toolbar_instead_of_drawing(overlay):
 
 
 def test_toolbar_layout_rows_and_outline(overlay):
-    """Sketch/Undo/Clear above the six tools (icons), one row of 9 colors below."""
+    """Sketch / Snap to grid / Pass through / Clear above the six tools (icons), one row
+    of 9 colors below."""
     from PySide6.QtWidgets import QPushButton
 
     toolbar = overlay._toolbar
@@ -670,8 +685,12 @@ def test_toolbar_layout_rows_and_outline(overlay):
     tools = [toolbar._tool_buttons[t] for t in order]
     assert len({b.y() for b in actions}) == 1 and len({b.y() for b in tools}) == 1
     assert actions[0].y() < tools[0].y()
-    # Every action button spans two tool columns.
-    assert [b.x() for b in actions] == [tools[i].x() for i in (0, 2, 4)]
+    # The action row spans exactly the tool row; each button is wide enough for its label.
+    assert [b.x() for b in actions] == sorted(b.x() for b in actions)
+    assert actions[0].x() == tools[0].x()
+    assert actions[-1].geometry().right() == tools[-1].geometry().right()
+    assert all(b.width() >= b.sizeHint().width() for b in actions)
+    assert len({b.width() for b in tools}) == 1
     assert [b.x() for b in tools] == sorted(b.x() for b in tools)
     swatches = list(toolbar._swatches.values())
     assert [s.text() for s in swatches] == [str(n) for n in range(1, 10)]

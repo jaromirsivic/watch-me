@@ -65,6 +65,7 @@ def make_recording(
                 "background": extra.get("background"),
                 "grid": extra.get("grid"),
                 "grid_source": extra.get("grid_source"),
+                "pass_through": extra.get("pass_through"),
                 "clipboard": extra.get("clipboard"),
             }
             (frames / frame_filename(t, sid, "png")).write_bytes(b"\x89PNG")
@@ -127,6 +128,7 @@ def test_timeline_merges_speech_shapes_clipboard_cursor_and_keypoints(tmp_path: 
         "zoom": 0,
         "sketch": 0,
         "grid": 0,
+        "pass_through": 0,
         "keypoints": 1,
         "pauses": 0,
         "mutes": 0,
@@ -370,6 +372,46 @@ def test_sketch_on_off_and_shapes_on_the_canvas(tmp_path: Path):
         "1700 SKETCH on: every screen shows a plain white canvas, the user sketches on it "
         "instead of drawing on the screen (switched on before the range)" in cropped["timeline"]
     )
+
+
+def test_pass_through_on_off_and_its_legend(tmp_path: Path):
+    ticks: dict[int, dict] = {}
+    for t in (500, 1000):  # drawing started at 500: the start picture is shown
+        ticks[t] = {"background": "screen", "pass_through": False}
+    for t in (1500, 2000):
+        ticks[t] = {"background": "screen", "pass_through": True}
+    ticks[2500] = {"background": "screen", "pass_through": False}
+    ticks[3000] = {"background": "screen", "pass_through": True}
+    # 3500 onwards: the drawing layer is closed.
+    result = build_timeline(make_recording(tmp_path, ticks))
+    text = result["timeline"]
+    assert (
+        "1500 PASS THROUGH on: the drawing layer shows the live screens (a video keeps "
+        "playing; zooming in freezes the screen as it is then)" in text
+    )
+    assert (
+        "2500 PASS THROUGH off: the drawing layer shows the screens as they were at 500 "
+        "(drawing started) again; live since 1500" in text
+    )
+    assert "3000 PASS THROUGH on" in text
+    assert "3500 PASS THROUGH off (drawing layer closed; live since 3000)" in text
+    assert not any(x.startswith("500 PASS THROUGH") for x in lines(result))  # off: no line
+    assert result["counts"]["pass_through"] == 2
+    assert "PASS THROUGH on (it is switched on whenever drawing starts)" in result["legend"]
+
+    # A range opening while it is on says so.
+    cropped = build_timeline(make_recording(tmp_path / "b", ticks), 1700, 2200)
+    assert "1700 PASS THROUGH on: the drawing layer shows the live screens" in cropped["timeline"]
+    assert cropped["timeline"].count("PASS THROUGH") == 1
+    assert "(switched on before the range)" in cropped["timeline"]
+
+
+def test_recordings_without_pass_through_get_no_lines_and_no_legend(tmp_path: Path):
+    ticks = {t: {"background": "screen"} for t in (500, 1000, 1500)}
+    result = build_timeline(make_recording(tmp_path, ticks))
+    assert "PASS THROUGH" not in result["timeline"]
+    assert "PASS THROUGH" not in result["legend"]
+    assert result["counts"]["pass_through"] == 0
 
 
 def test_eraser_removal_and_undo_restore(tmp_path: Path):
