@@ -113,8 +113,9 @@ Step by Step** (first write a plan of the test case in the chat - what the test 
 what will be tested, preconditions, acceptance, the steps that cannot be fully automated
 and open questions each with a default you use when the user does not answer - wait for
 the user's approval, then create the test case as Test Case Immediately describes it),
-**Test Case Immediately** (turn the recording into a repeatable test in the project's
-`test-cases` folder) and **Bug Report** (turn the recording into a bug report in the
+**Test Case Immediately** (turn the recording into a repeatable test in the
+`test-cases` folder directly in the project root, with all Python of the tests in
+`test-cases/.venv`) and **Bug Report** (turn the recording into a bug report in the
 project's `bugs` folder right away, no plan to approve: one folder per bug named
 `<YYYY-MM-DD>_<short-summary>` with `bugreport.md` - severity A, B or C, environment,
 use case / feature with the URL, specification, summary, steps to reproduce, expected

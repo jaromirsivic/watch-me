@@ -20,14 +20,18 @@ code of the scripts, comments in the code and the lines of `run.log` are always 
 
 ## 1. The `test-cases` folder
 
-Look for `test-cases` in the root of the project. When it exists, read its `README.md`
-and what is already there before you add anything. When it does not exist, create it and
-tell me that you created it, what is in it and its absolute path. When you cannot tell
-which folder is the project root, ask me before you create anything.
+`test-cases` lives directly in the root of the project (the root of the repository or
+folder you work in), next to its other top-level folders - never inside another folder
+such as `tests/`, also when other conventions of the project put test work elsewhere.
+Look for it there. When it exists, read its `README.md` and what is already there before
+you add anything. When it does not exist, create it and tell me that you created it, what
+is in it and its absolute path. When you cannot tell which folder is the project root, ask
+me before you create anything.
 
 ```text
 test-cases/
   README.md                        the structure, how to run a test, the list of tests
+  .venv/                           the Python of the tests (not committed), see section 2
   scripts/                         the executable parts of all tests
   tests/<test>/test.md             the steps of one test, for the AI agent
   docs/<test>/documentation.md     the same test described for people
@@ -49,6 +53,12 @@ and one line per test with its prerequisites.
 - Write the scripts in Python, because it runs on Windows, macOS and Linux: Playwright
   for the browser, plain Python for REST calls, files and databases. Declare what they
   need in one file in `scripts/`.
+- Everything Python of the tests lives in `test-cases/.venv`: the one virtual environment
+  of all scripts, built from that file, and - when Python itself has to be installed (for
+  example with uv) - that installation too, inside `.venv`. Never install into the system
+  or another folder, and never commit `.venv`. The launchers create or update `.venv` when
+  it is missing or the file changed and run every script with its Python; `README.md` says
+  how.
 - Write first for the system I recorded on, and keep the scripts cross-platform wherever
   possible (no fixed path separators, no tools of one system only). `.bat` and `.sh` files
   are thin launchers. When something cannot be cross-platform, my system has priority and

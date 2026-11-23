@@ -340,6 +340,8 @@ def test_test_case_template_describes_the_test_cases_folder(template: Template):
     assert text.count("English") == 1  # only: code, names and run.log are always English
     for word in (
         "test-cases",
+        "root of the project",
+        "test-cases/.venv",
         "scripts/",
         "tests/<test>/test.md",
         "docs/<test>/documentation.md",
