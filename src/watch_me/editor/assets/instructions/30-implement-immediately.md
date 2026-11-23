@@ -1,5 +1,5 @@
 ---
-name: Implement
+name: Implement Immediately
 tooltip: Carry out everything in the recording without asking
 ---
 # Goal: implement everything

@@ -13,15 +13,24 @@ A file may start with a front matter of simple ``key: value`` lines between two
     name: Draft Intent
     tooltip: Turn the recording into a formal brief, then ask how to continue
     ---
-    # Goal: a formal brief only (all outputs will be written in {language})
+    # Goal: a formal brief only (the draft intent will be written in {language})
 
 The front matter is not part of the instructions. Without a ``name`` the name comes
-from the file name (``50-code-review.md`` is "Code Review"). ``{language}`` in the
+from the file name (``60-code-review.md`` is "Code Review"). ``{language}`` in the
 text stands for the language picked in the dialog; a text without it does not depend
-on the language. A file is skipped (with a warning in the log) when it cannot be
-read, holds no text, is named ``Custom`` or like a template read before it (a
-built-in template wins over your own), or is longer than ``MAX_INSTRUCTIONS_CHARS``
-(storing it would cut it off).
+on the language.
+
+A line that holds nothing but ``{include:parts/test-case.md}`` is replaced by the text
+of that file, so several templates can share one description. The path is relative to
+the folder of the template and must stay inside it; the included text is taken as it is
+(a ``{include:...}`` in it is not followed, a ``{language}`` is replaced like any
+other). Only the ``*.md`` files directly in a folder are templates, so a file to
+include goes into a subfolder (``parts``).
+
+A file is skipped (with a warning in the log) when it cannot be read, holds no text,
+includes a file that cannot be read, is named ``Custom`` or like a template read before
+it (a built-in template wins over your own), or is longer than
+``MAX_INSTRUCTIONS_CHARS`` with its includes (storing it would cut it off).
 """
 
 from __future__ import annotations
@@ -45,6 +54,12 @@ FRONT_MATTER_FENCE = "---"
 
 _LONGEST_LANGUAGE = max((*TOP_LANGUAGES, *ALL_LANGUAGES), key=len)
 _NUMERIC_PREFIX = re.compile(r"^\d+[-_ ]*")
+# A line that holds only ``{include:<path>}``.
+_INCLUDE_LINE = re.compile(r"^[ \t]*\{include:([^{}\n]+)\}[ \t]*$", re.MULTILINE)
+
+
+class _IncludeError(Exception):
+    """A file named by an ``{include:...}`` line cannot be used; the message says why."""
 
 
 @dataclass(frozen=True)
@@ -103,6 +118,11 @@ def _read_template(path: Path) -> Template | None:
         return None
     content = content.replace("\r\n", "\n").replace("\r", "\n")
     fields, body = _split_front_matter(content)
+    try:
+        body = _expand_includes(path.parent, body)
+    except _IncludeError as exc:
+        log.warning("skipping template %s: %s", path, exc)
+        return None
     body = body.strip()
     if not body:
         log.warning("skipping template %s: it holds no instructions", path)
@@ -139,8 +159,30 @@ def _split_front_matter(content: str) -> tuple[dict[str, str], str]:
     return fields, "\n".join(lines[end + 1 :])
 
 
+def _expand_includes(folder: Path, body: str) -> str:
+    """``body`` with every ``{include:<path>}`` line replaced by the text of that file
+    in ``folder``; raises ``_IncludeError`` when one of them cannot be used."""
+    return _INCLUDE_LINE.sub(lambda match: _read_include(folder, match.group(1).strip()), body)
+
+
+def _read_include(folder: Path, name: str) -> str:
+    target = folder / name
+    try:
+        inside = target.resolve().is_relative_to(folder.resolve())
+    except OSError:
+        inside = False
+    if not inside:
+        raise _IncludeError(f"the included file {name!r} is outside the folder of the template")
+    try:
+        text = target.read_text(encoding="utf-8-sig")
+    except (OSError, UnicodeDecodeError) as exc:
+        raise _IncludeError(f"cannot read the included file {name!r}: {exc}") from exc
+    # Its text as it is: an include line in it stays a line of text (one level only).
+    return text.replace("\r\n", "\n").replace("\r", "\n").strip()
+
+
 def _name_from_file(path: Path) -> str:
-    """``50-code-review.md`` -> ``Code Review``."""
+    """``60-code-review.md`` -> ``Code Review``."""
     words = _NUMERIC_PREFIX.sub("", path.stem).replace("-", " ").replace("_", " ").split()
     return " ".join(words).title() if words else path.stem
 

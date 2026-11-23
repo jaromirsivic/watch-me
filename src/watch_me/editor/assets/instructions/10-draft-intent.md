@@ -2,7 +2,7 @@
 name: Draft Intent
 tooltip: Turn the recording into a formal brief, then ask how to continue
 ---
-# Goal: a formal brief only (all outputs will be written in {language})
+# Goal: a formal brief only (the draft intent will be written in {language})
 
 Process the recording (only its cropped range) and turn what I say and show into a
 formal brief. Write it in the chat as Markdown:

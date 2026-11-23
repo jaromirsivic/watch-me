@@ -2,7 +2,7 @@
 name: Create Plan
 tooltip: Turn the recording into an implementation or execution plan
 ---
-# Goal: an implementation plan (all outputs will be written in {language})
+# Goal: an implementation plan (the plan will be written in {language})
 
 Process the recording (only its cropped range) and create an implementation plan
 (or an execution plan, when the task is not about code) for everything I describe

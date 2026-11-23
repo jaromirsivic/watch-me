@@ -6,7 +6,9 @@ built-in folder and from ``custom-instructions`` in the state folder (see
 ``watch_me.editor.instruction_templates``), read again every time the dialog opens.
 **Language** (about a third of the row) lists English and Czech, a separator and every
 language. The choice is stored nowhere but in the text: the dialog opens on English
-unless the text in the box is a template written in another language.
+unless the text in the box is a template written in another language. The list of
+either combo box opens under it with at most ``MAX_VISIBLE_ITEMS`` rows and a scroll
+bar for the rest.
 
 Picking a template fills the text box with it, its ``{language}`` replaced by the
 selected language; picking Custom clears the box. When the box already holds other
@@ -24,7 +26,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from pathlib import Path
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QSize, Qt
 from PySide6.QtGui import QFont
 from PySide6.QtWidgets import (
     QComboBox,
@@ -61,6 +63,11 @@ ACTION_LABEL = "Action"
 LANGUAGE_LABEL = "Language"
 LANGUAGE_TOOLTIP = "The language the template asks the AI to write in"
 LANGUAGE_COMBO_WIDTH = 180  # about a third of the row at the dialog's minimum width
+MAX_VISIBLE_ITEMS = 10  # rows of a combo box's list; the rest is reached by scrolling
+# Fusion opens the list of a combo box as a menu as high as the screen and ignores
+# ``maxVisibleItems``; this switches it to a list under the box with a scroll bar.
+LIST_STYLE = "QComboBox { combobox-popup: 0; }"
+LIST_ROW_MARGIN = 4  # px above and below the text of a row in that list
 
 
 class InstructionsDialog(QDialog):
@@ -117,6 +124,8 @@ class InstructionsDialog(QDialog):
         self.language_combo.addItems(TOP_LANGUAGES)
         self.language_combo.insertSeparator(len(TOP_LANGUAGES))
         self.language_combo.addItems(ALL_LANGUAGES)
+        for combo in (self.template_combo, self.language_combo):
+            _limit_list(combo)
         action_label.setBuddy(self.template_combo)
         language_label.setBuddy(self.language_combo)
         row.addWidget(action_label, 0, 0)
@@ -295,6 +304,23 @@ class InstructionsDialog(QDialog):
         return normalize_instructions(self.text_edit.toPlainText())
 
 
+def _limit_list(combo: QComboBox) -> None:
+    """Make the list of ``combo`` (its items are all there) show at most
+    ``MAX_VISIBLE_ITEMS`` rows under the box and scroll for the rest."""
+    combo.setMaxVisibleItems(MAX_VISIBLE_ITEMS)
+    combo.setStyleSheet(LIST_STYLE)
+    # The view was created for the menu, which has no scroll bar.
+    combo.view().setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+    # A list packs its rows tighter than the menu did: give them the menu's room again.
+    metrics = combo.fontMetrics()
+    height = metrics.height() + 2 * LIST_ROW_MARGIN
+    for index in range(combo.count()):
+        if combo.itemData(index, Qt.ItemDataRole.AccessibleDescriptionRole) == "separator":
+            continue
+        width = metrics.horizontalAdvance(combo.itemText(index)) + 2 * LIST_ROW_MARGIN
+        combo.setItemData(index, QSize(width, height), Qt.ItemDataRole.SizeHintRole)
+
+
 # Every language once, the default first: a template without ``{language}`` matches in
 # the first language tried, so it keeps the default.
 _LANGUAGES_DEFAULT_FIRST: tuple[str, ...] = tuple(
@@ -309,5 +335,6 @@ __all__ = [
     "HEADING",
     "InstructionsDialog",
     "LANGUAGE_LABEL",
+    "MAX_VISIBLE_ITEMS",
     "TITLE",
 ]

@@ -20,9 +20,17 @@ from watch_me.editor.instruction_templates import (
 BUILT_IN_FILES = (
     "10-draft-intent.md",
     "20-create-plan.md",
-    "30-implement.md",
-    "40-test-case.md",
+    "30-implement-immediately.md",
+    "40-test-case-step-by-step.md",
+    "50-test-case-immediately.md",
 )
+BUILT_IN_NAMES = [
+    "Draft Intent",
+    "Create Plan",
+    "Implement Immediately",
+    "Test Case Step by Step",
+    "Test Case Immediately",
+]
 
 
 def _write(folder: Path, name: str, content: str) -> Path:
@@ -49,25 +57,26 @@ def test_built_in_files_have_a_front_matter_with_name_and_tooltip(file_name: str
     assert {"name", "tooltip"} <= keys
 
 
-def test_the_built_in_folder_holds_exactly_the_four_templates():
+def test_the_built_in_folder_holds_exactly_the_five_templates():
     assert tuple(sorted(p.name for p in TEMPLATES_DIR.glob("*.md"))) == BUILT_IN_FILES
-    assert _names(load_templates(TEMPLATES_DIR)) == [
-        "Draft Intent",
-        "Create Plan",
-        "Implement",
-        "Test Case",
-    ]
+    assert _names(load_templates(TEMPLATES_DIR)) == BUILT_IN_NAMES
 
 
 def test_built_in_templates_in_file_order_with_the_language_where_it_belongs():
-    draft, plan, implement = load_templates(TEMPLATES_DIR)[:3]
-    assert _names([draft, plan, implement]) == ["Draft Intent", "Create Plan", "Implement"]
-    assert all(t.tooltip for t in (draft, plan, implement))
+    draft, plan, implement, step_by_step, immediately = load_templates(TEMPLATES_DIR)
+    assert all(t.tooltip for t in (draft, plan, implement, step_by_step, immediately))
     assert draft.text.splitlines()[0] == (
-        "# Goal: a formal brief only (all outputs will be written in {language})"
+        "# Goal: a formal brief only (the draft intent will be written in {language})"
     )
     assert plan.text.splitlines()[0] == (
-        "# Goal: an implementation plan (all outputs will be written in {language})"
+        "# Goal: an implementation plan (the plan will be written in {language})"
+    )
+    assert step_by_step.text.splitlines()[0] == (
+        "# Goal: a test case, step by step "
+        "(the plan, the test and the documentation will be written in {language})"
+    )
+    assert immediately.text.splitlines()[0] == (
+        "# Goal: a test case (the test and the documentation will be written in {language})"
     )
     implement_lines = implement.text.splitlines()
     assert implement_lines[0] == "# Goal: implement everything"
@@ -75,6 +84,17 @@ def test_built_in_templates_in_file_order_with_the_language_where_it_belongs():
         implement_lines
     )
     assert not draft.text.startswith("---") and "tooltip:" not in draft.text
+
+
+def test_both_test_case_templates_share_the_description_in_parts():
+    shared = (TEMPLATES_DIR / "parts" / "test-case.md").read_text(encoding="utf-8").strip()
+    assert "The language named in the goal applies to every document you write" in shared
+    step_by_step, immediately = load_templates(TEMPLATES_DIR)[3:]
+    for template in (step_by_step, immediately):
+        assert template.text.endswith("\n\n" + shared + "\n")
+        assert "{include:" not in template.text
+    goal = "# Goal: a test case (the test and the documentation will be written in {language})"
+    assert immediately.text == goal + "\n\n" + shared + "\n"
 
 
 # Loading -----------------------------------------------------------------------------
@@ -110,11 +130,7 @@ def test_order_by_file_name_and_built_in_before_custom(tmp_path: Path):
 
 def test_a_missing_folder_holds_no_templates(tmp_path: Path):
     assert load_templates(tmp_path / "missing") == []
-    assert _names(load_templates(TEMPLATES_DIR, tmp_path / "missing"))[:3] == [
-        "Draft Intent",
-        "Create Plan",
-        "Implement",
-    ]
+    assert _names(load_templates(TEMPLATES_DIR, tmp_path / "missing")) == BUILT_IN_NAMES
 
 
 def test_custom_templates_dir_is_in_the_state_folder_and_never_created():
@@ -165,6 +181,57 @@ def test_an_unclosed_front_matter_is_text(tmp_path: Path):
     assert template.text == "---\nname: Odd\nno end\n"
 
 
+# Includes ----------------------------------------------------------------------------
+
+
+def test_an_include_line_is_replaced_by_the_text_of_that_file(tmp_path: Path):
+    shared = "﻿\r\nShared in {language}.\r\n{include:parts/other.md}\r\n\r\n"
+    _write(tmp_path / "parts", "shared.md", shared)
+    _write(tmp_path / "parts", "other.md", "never read\n")
+    _write(
+        tmp_path, "10-a.md", "---\nname: A\n---\n# A\n\n  {include: parts/shared.md}  \n\nEnd.\n"
+    )
+    _write(tmp_path, "20-b.md", "# B\n{include:parts/shared.md}\n")
+    first, second = load_templates(tmp_path)
+    assert _names([first, second]) == ["A", "B"], "a file in a subfolder is no template"
+    # The included text as it is: without its byte order mark and the empty lines around
+    # it, and an include line in it stays text.
+    assert first.text == "# A\n\nShared in {language}.\n{include:parts/other.md}\n\nEnd.\n"
+    assert second.text == "# B\nShared in {language}.\n{include:parts/other.md}\n"
+    assert first.render("Czech").splitlines()[2] == "Shared in Czech."
+
+
+def test_an_include_inside_a_line_of_text_is_text(tmp_path: Path):
+    _write(tmp_path, "10-a.md", "Write {include:parts/x.md} on a line of its own.\n")
+    (template,) = load_templates(tmp_path)
+    assert template.text == "Write {include:parts/x.md} on a line of its own.\n"
+
+
+def test_a_template_whose_include_cannot_be_used_is_skipped(tmp_path: Path, caplog):
+    folder = tmp_path / "templates"
+    outside = _write(tmp_path, "outside.md", "not for templates\n")
+    _write(folder, "10-missing.md", "# Missing\n{include:parts/missing.md}\n")
+    _write(folder, "20-outside.md", "# Outside\n{include:../outside.md}\n")
+    _write(folder, "30-absolute.md", f"# Absolute\n{{include:{outside}}}\n")
+    (folder / "parts").mkdir()
+    (folder / "parts" / "binary.md").write_bytes(b"\xff\xfe\x00bad")
+    _write(folder, "40-binary.md", "# Binary\n{include:parts/binary.md}\n")
+    _write(folder, "50-good.md", "good\n")
+    with caplog.at_level(logging.WARNING, logger="watch_me.editor.instruction_templates"):
+        templates = load_templates(folder)
+    assert templates == [Template("Good", "", "good\n")]
+    for name in ("10-missing.md", "20-outside.md", "30-absolute.md", "40-binary.md"):
+        assert name in caplog.text
+    assert caplog.text.count("is outside the folder of the template") == 2
+
+
+def test_the_length_limit_counts_the_included_text(tmp_path: Path):
+    _write(tmp_path / "parts", "long.md", "x" * MAX_INSTRUCTIONS_CHARS)
+    _write(tmp_path, "10-too-long.md", "y\n{include:parts/long.md}\n")
+    _write(tmp_path, "20-fits.md", "{include:parts/long.md}\n")
+    assert _names(load_templates(tmp_path)) == ["Fits"]
+
+
 # Rendering ---------------------------------------------------------------------------
 
 
@@ -180,7 +247,8 @@ def test_a_template_without_the_placeholder_renders_unchanged():
 
 def test_built_in_templates_render_in_czech():
     draft, plan, implement = load_templates(TEMPLATES_DIR)[:3]
-    assert draft.render("Czech").splitlines()[0].endswith("(all outputs will be written in Czech)")
+    first_line = draft.render("Czech").splitlines()[0]
+    assert first_line.endswith("(the draft intent will be written in Czech)")
     assert "{language}" not in plan.render("Czech")
     assert "is Czech." in implement.render("Czech")
     assert "source code is English." in implement.render("Czech")

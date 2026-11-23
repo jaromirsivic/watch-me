@@ -1,14 +1,8 @@
----
-name: Test Case
-tooltip: Turn the recording into a repeatable test case (scripts, steps for the AI, documentation)
----
-# Goal: a test case (all outputs will be written in {language})
-
 Process the recording (only its cropped range) and turn what I do, show and say into a
 repeatable test case in the `test-cases` folder of my project. What I click and type are
 the steps; what I say should happen are the expected results.
 
-The output language applies to every document you write (`README.md`, `test.md`,
+The language named in the goal applies to every document you write (`README.md`, `test.md`,
 `documentation.md`, `report.md`) and to your messages to me. File and folder names, the
 code of the scripts, comments in the code and the lines of `run.log` are always English.
 

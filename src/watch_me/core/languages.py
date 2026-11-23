@@ -1,7 +1,7 @@
 """Languages the user can pick for the outputs of an instruction template.
 
 The names are English because they go into an English sentence of the template
-("all outputs will be written in Czech"). ``ALL_LANGUAGES`` holds one plain name for
+("the plan will be written in Czech"). ``ALL_LANGUAGES`` holds one plain name for
 every ISO 639-1 language, sorted alphabetically; ``TOP_LANGUAGES`` are offered above
 it, ``DEFAULT_LANGUAGE`` is selected when nothing says otherwise.
 """

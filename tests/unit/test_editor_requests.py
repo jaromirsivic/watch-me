@@ -36,6 +36,7 @@ from watch_me.editor.instruction_templates import (  # noqa: E402
 from watch_me.editor.instructions_dialog import (  # noqa: E402
     CUSTOM,
     EXPLANATION,
+    MAX_VISIBLE_ITEMS,
     InstructionsDialog,
 )
 from watch_me.editor.window import EditorWindow  # noqa: E402
@@ -77,8 +78,18 @@ def _built_in(name: str) -> Template:
 
 DRAFT_INTENT = _built_in("Draft Intent")
 CREATE_PLAN = _built_in("Create Plan")
-IMPLEMENT = _built_in("Implement")
-TEST_CASE = _built_in("Test Case")
+IMPLEMENT = _built_in("Implement Immediately")
+TEST_CASE_STEP_BY_STEP = _built_in("Test Case Step by Step")
+TEST_CASE = _built_in("Test Case Immediately")
+TEST_CASE_GOALS = {
+    "Test Case Step by Step": (
+        "# Goal: a test case, step by step "
+        "(the plan, the test and the documentation will be written in {language})"
+    ),
+    "Test Case Immediately": (
+        "# Goal: a test case (the test and the documentation will be written in {language})"
+    ),
+}
 
 
 @pytest.fixture
@@ -128,8 +139,9 @@ def test_combo_lists_custom_and_the_built_in_templates_with_tooltips(open_dialog
         CUSTOM,
         "Draft Intent",
         "Create Plan",
-        "Implement",
-        "Test Case",
+        "Implement Immediately",
+        "Test Case Step by Step",
+        "Test Case Immediately",
     ]
     combo = dialog.template_combo
     tooltips = [combo.itemData(i, Qt.ItemDataRole.ToolTipRole) for i in range(combo.count())]
@@ -144,25 +156,27 @@ def test_a_file_added_to_the_custom_folder_shows_up_at_the_next_open(open_dialog
         CUSTOM,
         "Draft Intent",
         "Create Plan",
-        "Implement",
-        "Test Case",
+        "Implement Immediately",
+        "Test Case Step by Step",
+        "Test Case Immediately",
     ]
     custom_dir.mkdir()
     (custom_dir / "50-code-review.md").write_text(
-        "# Goal: a code review (all outputs will be written in {language})\n", encoding="utf-8"
+        "# Goal: a code review (the review will be written in {language})\n", encoding="utf-8"
     )
     second = open_dialog()
     assert _combo_items(second.template_combo) == [
         CUSTOM,
         "Draft Intent",
         "Create Plan",
-        "Implement",
-        "Test Case",
+        "Implement Immediately",
+        "Test Case Step by Step",
+        "Test Case Immediately",
         "Code Review",
     ]
     second.select_language("Czech")
     assert second.select_template("Code Review")
-    assert second.instructions() == ("# Goal: a code review (all outputs will be written in Czech)")
+    assert second.instructions() == "# Goal: a code review (the review will be written in Czech)"
 
 
 def test_the_dialog_reads_custom_instructions_in_the_state_folder_by_default(qtbot):
@@ -262,11 +276,63 @@ def test_template_texts_say_what_the_ai_must_do():
     assert all(len(t.text) < 1000 for t in (DRAFT_INTENT, CREATE_PLAN, IMPLEMENT))
 
 
-def test_test_case_template_describes_the_test_cases_folder():
-    text = TEST_CASE.text
-    assert text.splitlines()[0] == (
-        "# Goal: a test case (all outputs will be written in {language})"
-    )
+def test_the_lists_show_at_most_ten_rows_and_scroll(open_dialog, qtbot):
+    dialog = open_dialog()
+    dialog.show()
+    qtbot.waitExposed(dialog)
+    assert MAX_VISIBLE_ITEMS == 10
+    for combo, scrolls in ((dialog.language_combo, True), (dialog.template_combo, False)):
+        assert combo.maxVisibleItems() == MAX_VISIBLE_ITEMS
+        combo.showPopup()
+        view = combo.view()
+        qtbot.waitUntil(view.isVisible)
+        bar = view.verticalScrollBar()
+        bottom_row = view.indexAt(QPoint(1, view.viewport().height() - 1)).row()
+        if scrolls:
+            assert combo.count() > MAX_VISIBLE_ITEMS
+            assert bottom_row == MAX_VISIBLE_ITEMS - 1, "ten rows, the separator is one of them"
+            assert bar.maximum() > 0 and bar.isVisible()
+        else:
+            assert bottom_row == combo.count() - 1, "every row fits"
+            assert bar.maximum() == 0 and not bar.isVisible()
+        combo.hidePopup()
+
+
+def test_the_rows_of_a_list_keep_room_around_the_text(open_dialog):
+    dialog = open_dialog()
+    combo = dialog.language_combo
+    text_height = combo.fontMetrics().height()
+    assert combo.view().sizeHintForRow(0) >= text_height + 8
+    assert combo.view().sizeHintForRow(2) < text_height, "the separator stays a thin line"
+    assert combo.itemData(2, Qt.ItemDataRole.SizeHintRole) is None
+
+
+def test_test_case_step_by_step_plans_first_and_then_describes_the_test_case():
+    text = TEST_CASE_STEP_BY_STEP.text
+    plan, _, rest = text.partition("## Step 2: the test case")
+    assert "## Step 1: the plan" in plan
+    for word in (
+        "Do not create or change any file yet",
+        "**What will be tested:**",
+        "**Preconditions:**",
+        "**Acceptance:** what it means that the test passed",
+        "**Not fully automated:**",
+        "**Open questions:**",
+        "default",
+        "wait for my approval",
+    ):
+        assert word in plan, word
+    assert "After my approval" in rest
+    shared = TEST_CASE.text.partition("\n\n")[2]  # everything under the goal line
+    assert shared.startswith("Process the recording")
+    assert rest.endswith(shared), "the same description as Test Case Immediately"
+
+
+@pytest.mark.parametrize("template", [TEST_CASE_STEP_BY_STEP, TEST_CASE], ids=lambda t: t.name)
+def test_test_case_template_describes_the_test_cases_folder(template: Template):
+    text = template.text
+    assert text.splitlines()[0] == TEST_CASE_GOALS[template.name]
+    assert "{include:" not in text
     assert text.count("{language}") == 1
     assert text.count("English") == 1  # only: code, names and run.log are always English
     for word in (
@@ -283,23 +349,25 @@ def test_test_case_template_describes_the_test_cases_folder():
     assert "mimosa" not in text.lower()
 
 
-def test_test_case_template_fits_the_instructions_limit():
+@pytest.mark.parametrize("template", [TEST_CASE_STEP_BY_STEP, TEST_CASE], ids=lambda t: t.name)
+def test_test_case_template_fits_the_instructions_limit(template: Template):
     longest = max(ALL_LANGUAGES, key=len)
     for language in ("English", longest):
-        rendered = TEST_CASE.render(language)
+        rendered = template.render(language)
         assert len(rendered.strip()) <= MAX_INSTRUCTIONS_CHARS
         assert normalize_instructions(rendered) == rendered.strip()  # stored uncut
 
 
-def test_test_case_in_czech_is_stored_and_recognised_again(open_dialog):
+@pytest.mark.parametrize("name", list(TEST_CASE_GOALS))
+def test_test_case_in_czech_is_stored_and_recognised_again(open_dialog, name: str):
     dialog = open_dialog()
     dialog.select_language("Czech")
-    assert dialog.select_template("Test Case")
+    assert dialog.select_template(name)
     stored = dialog.instructions()
-    assert stored.splitlines()[0] == "# Goal: a test case (all outputs will be written in Czech)"
+    assert stored.splitlines()[0] == TEST_CASE_GOALS[name].replace("{language}", "Czech")
     assert "{language}" not in stored
     again = open_dialog(stored)
-    assert again.selected_template() == "Test Case"
+    assert again.selected_template() == name
     assert again.selected_language() == "Czech"
 
 
@@ -308,14 +376,21 @@ def test_draft_intent_in_czech_names_the_language_in_the_goal(open_dialog):
     dialog.select_language("Czech")
     assert dialog.select_template("Draft Intent")
     first_line = dialog.instructions().splitlines()[0]
-    assert first_line == "# Goal: a formal brief only (all outputs will be written in Czech)"
-    assert first_line.endswith("(all outputs will be written in Czech)")
+    assert first_line == "# Goal: a formal brief only (the draft intent will be written in Czech)"
+
+
+def test_create_plan_in_czech_names_the_language_in_the_goal(open_dialog):
+    dialog = open_dialog("")
+    dialog.select_language("Czech")
+    assert dialog.select_template("Create Plan")
+    first_line = dialog.instructions().splitlines()[0]
+    assert first_line == "# Goal: an implementation plan (the plan will be written in Czech)"
 
 
 def test_implement_in_czech_keeps_code_in_english_and_the_interface_in_czech(open_dialog):
     dialog = open_dialog("")
     dialog.select_language("Czech")
-    assert dialog.select_template("Implement")
+    assert dialog.select_template("Implement Immediately")
     lines = dialog.instructions().splitlines()
     assert lines[0] == "# Goal: implement everything"
     assert "- The default language of a user interface in the output is Czech." in lines
@@ -353,16 +428,16 @@ def test_replacing_other_text_asks_first(open_dialog):
     dialog = open_dialog("my own words")
     answer = {"value": False}
     asked = _record_questions(dialog, answer)
-    assert not dialog.select_template("Implement")
-    assert asked == ["Implement"]
+    assert not dialog.select_template("Implement Immediately")
+    assert asked == ["Implement Immediately"]
     assert dialog.text_edit.toPlainText() == "my own words", "No keeps the text"
     assert dialog.template_combo.currentText() == CUSTOM, "No puts the combo back"
     answer["value"] = True
-    assert dialog.select_template("Implement")
+    assert dialog.select_template("Implement Immediately")
     assert dialog.text_edit.toPlainText() == IMPLEMENT.render("English")
-    assert dialog.template_combo.currentText() == "Implement"
+    assert dialog.template_combo.currentText() == "Implement Immediately"
     assert dialog.apply_template(IMPLEMENT)  # the same template again: no question
-    assert asked == ["Implement", "Implement"]
+    assert asked == ["Implement Immediately", "Implement Immediately"]
 
 
 def test_switching_between_templates_asks_and_no_goes_back(open_dialog):
@@ -393,7 +468,7 @@ def test_custom_with_no_keeps_the_template_and_its_text(open_dialog):
     assert not dialog.select_template(CUSTOM)
     assert asked == [CUSTOM]
     assert dialog.text_edit.toPlainText() == IMPLEMENT.render("English")
-    assert dialog.template_combo.currentText() == "Implement"
+    assert dialog.template_combo.currentText() == "Implement Immediately"
 
 
 def test_custom_on_an_empty_box_asks_nothing(open_dialog):
