@@ -115,18 +115,23 @@ and open questions each with a default you use when the user does not answer - w
 the user's approval, then create the test case as Test Case Immediately describes it),
 **Test Case Immediately** (turn the recording into a repeatable test in the
 `test-cases` folder directly in the project root, with all Python of the tests in
-`test-cases/.venv`) and **Bug Report** (turn the recording into a bug report in the
+`test-cases/.venv`), **Bug Report** (turn the recording into a bug report in the
 project's `bugs` folder right away, no plan to approve: one folder per bug named
 `<YYYY-MM-DD>_<short-summary>` with `bugreport.md` - severity A, B or C, environment,
 use case / feature with the URL, specification, summary, steps to reproduce, expected
 and actual result, screenshots, related bugs, notes - and the frames that show the bug
 in a `screens` subfolder; create `bugs` with a `README.md` holding the structure and the
 list of bugs when it is missing, check for duplicates first and end by telling the user
-the absolute path of the report), which fill the box with a ready-made instruction, and
+the absolute path of the report and the folder of the recording; the report never
+mentions the recording - no time stamps, no quotes, it describes in its own words what
+the reporter points out and did - because its readers do not get it) and
+**Bug Report + Video** (the same, for readers who also get the recording: the report may
+point into it with time stamps and quote the reporter, always translated into the
+language of the report, and its notes name the folder of the recording), which fill the box with a ready-made instruction, and
 the **Language** combo box, English by default, the language of your outputs: Draft
 Intent writes the draft intent in it, Create Plan the plan, Test Case Step by Step the
 plan, the test and the documentation, Test Case Immediately the test and the
-documentation, Bug Report the bug report and the `README.md` of `bugs`, and Implement
+documentation, both Bug Reports the bug report and the `README.md` of `bugs`, and Implement
 Immediately makes it the default language of a user interface while code and comments
 stay English; both drop-down lists show at most 10 rows and scroll;
 Custom clears the box and a template replaces its text, each after a confirmation when

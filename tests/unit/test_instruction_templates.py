@@ -24,6 +24,7 @@ BUILT_IN_FILES = (
     "40-test-case-step-by-step.md",
     "50-test-case-immediately.md",
     "60-bug-report.md",
+    "70-bug-report-plus-video.md",
 )
 BUILT_IN_NAMES = [
     "Draft Intent",
@@ -32,6 +33,7 @@ BUILT_IN_NAMES = [
     "Test Case Step by Step",
     "Test Case Immediately",
     "Bug Report",
+    "Bug Report + Video",
 ]
 
 
@@ -59,14 +61,15 @@ def test_built_in_files_have_a_front_matter_with_name_and_tooltip(file_name: str
     assert {"name", "tooltip"} <= keys
 
 
-def test_the_built_in_folder_holds_exactly_the_six_templates():
+def test_the_built_in_folder_holds_exactly_the_seven_templates():
     assert tuple(sorted(p.name for p in TEMPLATES_DIR.glob("*.md"))) == BUILT_IN_FILES
     assert _names(load_templates(TEMPLATES_DIR)) == BUILT_IN_NAMES
 
 
 def test_built_in_templates_in_file_order_with_the_language_where_it_belongs():
-    draft, plan, implement, step_by_step, immediately, bug = load_templates(TEMPLATES_DIR)
-    assert all(t.tooltip for t in (draft, plan, implement, step_by_step, immediately, bug))
+    templates = load_templates(TEMPLATES_DIR)
+    draft, plan, implement, step_by_step, immediately, bug, bug_video = templates
+    assert all(t.tooltip for t in templates)
     assert draft.text.splitlines()[0] == (
         "# Goal: a formal brief only (the draft intent will be written in {language})"
     )
@@ -82,6 +85,9 @@ def test_built_in_templates_in_file_order_with_the_language_where_it_belongs():
     )
     assert bug.text.splitlines()[0] == (
         "# Goal: a bug report (the bug report will be written in {language})"
+    )
+    assert bug_video.text.splitlines()[0] == (
+        "# Goal: a bug report with video (the bug report will be written in {language})"
     )
     implement_lines = implement.text.splitlines()
     assert implement_lines[0] == "# Goal: implement everything"
@@ -102,23 +108,53 @@ def test_both_test_case_templates_share_the_description_in_parts():
     assert immediately.text == goal + "\n\n" + shared + "\n"
 
 
-def test_the_bug_report_template_files_a_bug_in_the_bugs_folder():
+def test_both_bug_report_templates_share_the_description_in_parts():
+    shared = (TEMPLATES_DIR / "parts" / "bug-report.md").read_text(encoding="utf-8").strip()
+    assert "file what I show and describe as a bug" in shared
+    bug, bug_video = load_templates(TEMPLATES_DIR)[5:7]
+    for template in (bug, bug_video):
+        goal = template.text.splitlines()[0]
+        assert template.text.startswith(goal + "\n\n" + shared + "\n\n## 8. ")
+        assert "{include:" not in template.text
+
+
+def test_the_bug_report_templates_file_a_bug_in_the_bugs_folder():
+    bug, bug_video = load_templates(TEMPLATES_DIR)[5:7]
+    assert (bug.name, bug_video.name) == ("Bug Report", "Bug Report + Video")
+    for template in (bug, bug_video):
+        text = template.text
+        assert not text.startswith("---") and "tooltip:" not in text
+        for expected in (
+            "<A | B | C>",
+            "`bugs`",
+            "screens/01-<short-name>.jpg",
+            "not looked up",
+            "absolute path",
+        ):
+            assert expected in text
+        assert "mimosa" not in text.lower()
+        assert "{include:" not in text
+        assert "in the language I spoke" not in text
+        czech = template.render("Czech")
+        assert "{language}" not in czech
+        assert czech.splitlines()[0].endswith("(the bug report will be written in Czech)")
+
+
+def test_the_bug_report_never_mentions_the_recording():
     bug = load_templates(TEMPLATES_DIR)[5]
-    assert bug.name == "Bug Report"
-    assert not bug.text.startswith("---") and "tooltip:" not in bug.text
-    for expected in (
-        "<A | B | C>",
-        "`bugs`",
-        "screens/01-<short-name>.jpg",
-        "not looked up",
-        "absolute path",
-    ):
-        assert expected in bug.text
-    assert "mimosa" not in bug.text.lower()
-    assert "{include:" not in bug.text
-    czech = bug.render("Czech")
-    assert "{language}" not in czech
-    assert czech.splitlines()[0].endswith("(the bug report will be written in Czech)")
+    assert "## 8. The reporter's words - the report never mentions the recording" in bug.text
+    assert "mention the recording, a video, a narration or a transcript" in bug.text
+    assert "Do not quote me" in bug.text
+    assert "time stamp of the recording (seconds" not in bug.text
+
+
+def test_the_bug_report_plus_video_points_into_the_recording():
+    bug_video = load_templates(TEMPLATES_DIR)[6]
+    assert "## 8. The reporter's words and the recording" in bug_video.text
+    assert "always in the language of the report: translate the" in bug_video.text
+    assert "time stamp of the recording (seconds or m:ss)" in bug_video.text
+    assert "**Notes** name the folder of the recording" in bug_video.text
+    assert "Do not quote me" not in bug_video.text
 
 
 # Loading -----------------------------------------------------------------------------
