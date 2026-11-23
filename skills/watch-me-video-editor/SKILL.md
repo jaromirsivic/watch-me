@@ -115,7 +115,9 @@ and open questions each with a default you use when the user does not answer - w
 the user's approval, then create the test case as Test Case Immediately describes it),
 **Test Case Immediately** (turn the recording into a repeatable test in the
 `test-cases` folder directly in the project root, with all Python of the tests in
-`test-cases/.venv`), **Bug Report** (turn the recording into a bug report in the
+`test-cases/.venv`; nothing in `test-cases` points to the recording, which may be
+deleted - what the user said becomes a requirement of the requester, translated or
+paraphrased), **Bug Report** (turn the recording into a bug report in the
 project's `bugs` folder right away, no plan to approve: one folder per bug named
 `<YYYY-MM-DD>_<short-summary>` with `bugreport.md` - severity A, B or C, environment,
 use case / feature with the URL, specification, summary, steps to reproduce, expected

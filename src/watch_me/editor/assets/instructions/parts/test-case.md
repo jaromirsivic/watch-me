@@ -6,6 +6,22 @@ The language named in the goal applies to every document you write (`README.md`,
 `documentation.md`, `report.md`) and to your messages to me. File and folder names, the
 code of the scripts, comments in the code and the lines of `run.log` are always English.
 
+## No link to the recording
+
+The recording may be deleted, so nothing in `test-cases` may depend on it or point to it.
+Above all, no path leads to it: no absolute or relative path to its folder or to any of
+its files (frames, audio, transcript, video), no session id. Beyond that, `README.md`,
+`test.md`, `documentation.md`, `report.md`, `run.log`, the scripts and their comments
+never mention the recording, a video, a narration, a transcript or Watch Me, and never
+give its date or a time stamp from it.
+
+- What I said goes in as a requirement of the requester (the one who asked for the test
+  case): "The requester requires ...", "agreed with the requester: ...". Translate my words
+  into the language of the file you write them in, or paraphrase them;
+  never quote them word for word in the language I spoke.
+- What you saw in the application is an observation of the application ("observed on
+  FAT: ..."), not something seen in the recording.
+
 ## Principles
 
 - **What can be programmed is programmed.** Every part of the test that a script can do

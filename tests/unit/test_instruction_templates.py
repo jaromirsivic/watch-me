@@ -100,6 +100,11 @@ def test_built_in_templates_in_file_order_with_the_language_where_it_belongs():
 def test_both_test_case_templates_share_the_description_in_parts():
     shared = (TEMPLATES_DIR / "parts" / "test-case.md").read_text(encoding="utf-8").strip()
     assert "The language named in the goal applies to every document you write" in shared
+    assert "## No link to the recording" in shared
+    assert "The recording may be deleted, so nothing in `test-cases` may depend on it" in shared
+    assert "Above all, no path leads to it" in shared
+    assert '"The requester requires ..."' in shared
+    assert "never quote them word for word in the language I spoke" in shared
     step_by_step, immediately = load_templates(TEMPLATES_DIR)[3:5]
     for template in (step_by_step, immediately):
         assert template.text.endswith("\n\n" + shared + "\n")
