@@ -1,5 +1,5 @@
-"""Instruction templates, app icon, waveform fit, screen dot tooltips and the recordings
-context menu (open folder, delete) of the editor (offscreen Qt)."""
+"""Instruction templates and languages, app icon, waveform fit, screen dot tooltips and
+the recordings context menu (open folder, delete) of the editor (offscreen Qt)."""
 
 from __future__ import annotations
 
@@ -12,22 +12,30 @@ from pathlib import Path  # noqa: E402
 import pytest  # noqa: E402
 from PySide6.QtCore import QItemSelectionModel, QPoint, Qt  # noqa: E402
 from PySide6.QtGui import QFontMetrics, QTextCursor  # noqa: E402
+from PySide6.QtWidgets import QComboBox  # noqa: E402
 from test_editor import NEWEST, OLDER, _wait_loaded, make_recording  # noqa: E402
 
 from watch_me.core.config import Config  # noqa: E402
+from watch_me.core.instructions import (  # noqa: E402
+    MAX_INSTRUCTIONS_CHARS,
+    normalize_instructions,
+)
+from watch_me.core.languages import ALL_LANGUAGES  # noqa: E402
 from watch_me.core.session import (  # noqa: E402
     SessionPaths,
     SessionState,
     Status,
     write_state,
 )
+from watch_me.editor.instruction_templates import (  # noqa: E402
+    TEMPLATES_DIR,
+    Template,
+    custom_templates_dir,
+    load_templates,
+)
 from watch_me.editor.instructions_dialog import (  # noqa: E402
-    CREATE_PLAN,
     CUSTOM,
-    DRAFT_INTENT,
     EXPLANATION,
-    IMPLEMENT,
-    TEMPLATES,
     InstructionsDialog,
 )
 from watch_me.editor.window import EditorWindow  # noqa: E402
@@ -63,8 +71,36 @@ def test_instructions_button_has_no_icon_and_the_example_text_is_gone(editor):
     assert "Say what you want" not in EXPLANATION
 
 
-def _combo_items(dialog: InstructionsDialog) -> list[str]:
-    combo = dialog.template_combo
+def _built_in(name: str) -> Template:
+    return next(t for t in load_templates(TEMPLATES_DIR) if t.name == name)
+
+
+DRAFT_INTENT = _built_in("Draft Intent")
+CREATE_PLAN = _built_in("Create Plan")
+IMPLEMENT = _built_in("Implement")
+TEST_CASE = _built_in("Test Case")
+
+
+@pytest.fixture
+def custom_dir(tmp_path: Path) -> Path:
+    """The custom templates folder of the tests; it does not exist until a test makes it."""
+    return tmp_path / "custom-instructions"
+
+
+@pytest.fixture
+def open_dialog(qtbot, custom_dir: Path):
+    """Opens the dialog on the built-in templates and ``custom_dir``, never on the real
+    custom templates of the machine."""
+
+    def open_(text: str = "") -> InstructionsDialog:
+        dialog = InstructionsDialog(text, template_dirs=(TEMPLATES_DIR, custom_dir))
+        qtbot.addWidget(dialog)
+        return dialog
+
+    return open_
+
+
+def _combo_items(combo: QComboBox) -> list[str]:
     return [combo.itemText(i) for i in range(combo.count())]
 
 
@@ -85,69 +121,236 @@ def _record_questions(dialog: InstructionsDialog, answer: dict[str, bool]) -> li
     return asked
 
 
-def test_combo_lists_custom_and_the_three_templates_with_tooltips(qtbot):
-    dialog = InstructionsDialog("")
-    qtbot.addWidget(dialog)
-    assert _combo_items(dialog) == [CUSTOM, "Draft Intent", "Create Plan", "Implement"]
-    assert CUSTOM not in [t.name for t in TEMPLATES]
+def test_combo_lists_custom_and_the_built_in_templates_with_tooltips(open_dialog):
+    dialog = open_dialog()
+    built_in = load_templates(TEMPLATES_DIR)
+    assert _combo_items(dialog.template_combo) == [
+        CUSTOM,
+        "Draft Intent",
+        "Create Plan",
+        "Implement",
+        "Test Case",
+    ]
     combo = dialog.template_combo
     tooltips = [combo.itemData(i, Qt.ItemDataRole.ToolTipRole) for i in range(combo.count())]
-    assert tooltips[1:] == [t.tooltip for t in TEMPLATES]
+    assert tooltips[1:] == [t.tooltip for t in built_in]
+    assert all(tooltips[1:])
     assert "own" in tooltips[0]
 
 
-def test_empty_box_opens_on_custom(qtbot):
+def test_a_file_added_to_the_custom_folder_shows_up_at_the_next_open(open_dialog, custom_dir):
+    first = open_dialog()
+    assert _combo_items(first.template_combo) == [
+        CUSTOM,
+        "Draft Intent",
+        "Create Plan",
+        "Implement",
+        "Test Case",
+    ]
+    custom_dir.mkdir()
+    (custom_dir / "50-code-review.md").write_text(
+        "# Goal: a code review (all outputs will be written in {language})\n", encoding="utf-8"
+    )
+    second = open_dialog()
+    assert _combo_items(second.template_combo) == [
+        CUSTOM,
+        "Draft Intent",
+        "Create Plan",
+        "Implement",
+        "Test Case",
+        "Code Review",
+    ]
+    second.select_language("Czech")
+    assert second.select_template("Code Review")
+    assert second.instructions() == ("# Goal: a code review (all outputs will be written in Czech)")
+
+
+def test_the_dialog_reads_custom_instructions_in_the_state_folder_by_default(qtbot):
+    custom = custom_templates_dir()  # in the test's own state folder (conftest)
+    custom.mkdir(parents=True)
+    (custom / "my-review.md").write_text("Review it.\n", encoding="utf-8")
     dialog = InstructionsDialog("")
     qtbot.addWidget(dialog)
+    assert _combo_items(dialog.template_combo)[:2] == [CUSTOM, "Draft Intent"]
+    assert _combo_items(dialog.template_combo)[-1] == "My Review"
+
+
+def test_language_combo_lists_the_top_languages_a_separator_and_all(open_dialog):
+    dialog = open_dialog()
+    combo = dialog.language_combo
+    items = _combo_items(combo)
+    assert items[:2] == ["English", "Czech"]
+    assert items[2] == ""
+    assert combo.itemData(2, Qt.ItemDataRole.AccessibleDescriptionRole) == "separator"
+    assert tuple(items[3:]) == ALL_LANGUAGES
+    assert dialog.selected_language() == "English"
+    assert combo.currentIndex() == 0
+
+
+def test_language_combo_is_enabled_on_custom_and_leaves_the_text_alone(open_dialog):
+    dialog = open_dialog("my own words")
+    asked = _record_questions(dialog, {"value": True})
+    assert dialog.selected_template() == CUSTOM
+    assert dialog.language_combo.isEnabled()
+    dialog.select_language("Czech")
+    assert dialog.selected_language() == "Czech"
+    assert dialog.text_edit.toPlainText() == "my own words"
+    assert dialog.selected_template() == CUSTOM
+    assert asked == []
+
+
+def test_empty_box_opens_on_custom_and_english(open_dialog):
+    dialog = open_dialog("")
     assert dialog.template_combo.currentText() == CUSTOM
+    assert dialog.selected_language() == "English"
 
 
-def test_other_text_opens_on_custom(qtbot):
-    dialog = InstructionsDialog("my own words")
-    qtbot.addWidget(dialog)
+def test_other_text_opens_on_custom_and_english(open_dialog):
+    dialog = open_dialog("my own words")
     assert dialog.template_combo.currentText() == CUSTOM
+    assert dialog.selected_language() == "English"
 
 
-def test_a_templates_text_opens_on_that_template_without_asking(qtbot, monkeypatch):
+def test_a_templates_text_opens_on_that_template_without_asking(open_dialog, monkeypatch):
     def never(*_args):
         raise AssertionError("opening the dialog must not ask")
 
     monkeypatch.setattr(InstructionsDialog, "confirm_replace", never)
     monkeypatch.setattr(InstructionsDialog, "confirm_clear", never)
-    dialog = InstructionsDialog("\n" + CREATE_PLAN.text.strip() + "\n\n")
-    qtbot.addWidget(dialog)
+    text = "\n" + CREATE_PLAN.render("English").strip() + "\n\n"
+    dialog = open_dialog(text)
     assert dialog.template_combo.currentText() == "Create Plan"
-    assert dialog.text_edit.toPlainText() == "\n" + CREATE_PLAN.text.strip() + "\n\n"
+    assert dialog.selected_language() == "English"
+    assert dialog.text_edit.toPlainText() == text
 
 
-def test_picking_a_template_fills_an_empty_box_without_asking(qtbot):
-    dialog = InstructionsDialog("")
-    qtbot.addWidget(dialog)
+def test_a_czech_create_plan_opens_on_create_plan_and_czech(open_dialog):
+    stored = normalize_instructions(CREATE_PLAN.render("Czech"))
+    dialog = open_dialog(stored)
+    assert dialog.selected_template() == "Create Plan"
+    assert dialog.selected_language() == "Czech"
+    assert dialog.language_combo.currentIndex() == 1, "the Czech at the top"
+    assert dialog.text_edit.toPlainText() == stored
+
+
+def test_a_template_in_a_language_from_the_full_list_is_recognised(open_dialog):
+    dialog = open_dialog(DRAFT_INTENT.render("Norwegian Bokmål"))
+    assert dialog.selected_template() == "Draft Intent"
+    assert dialog.selected_language() == "Norwegian Bokmål"
+
+
+def test_picking_a_template_fills_an_empty_box_without_asking(open_dialog):
+    dialog = open_dialog("")
     asked = _record_questions(dialog, {"value": False})
     assert dialog.select_template("Create Plan")
     assert asked == []
-    assert dialog.text_edit.toPlainText() == CREATE_PLAN.text
+    assert dialog.text_edit.toPlainText() == CREATE_PLAN.render("English")
     assert dialog.template_combo.currentText() == "Create Plan"
     assert "implementation plan" in dialog.instructions()
 
 
-def test_picking_a_template_in_the_combo_fills_the_box(qtbot):
-    dialog = InstructionsDialog("")
-    qtbot.addWidget(dialog)
+def test_picking_a_template_in_the_combo_fills_the_box(open_dialog):
+    dialog = open_dialog("")
     dialog.template_combo.setCurrentIndex(dialog.template_combo.findText("Draft Intent"))
-    assert dialog.text_edit.toPlainText() == DRAFT_INTENT.text
+    assert dialog.text_edit.toPlainText() == DRAFT_INTENT.render("English")
 
 
 def test_template_texts_say_what_the_ai_must_do():
     assert "formal brief" in DRAFT_INTENT.text and "ask me whether" in DRAFT_INTENT.text
     assert "Do not implement" in CREATE_PLAN.text
     assert "do not ask me" in IMPLEMENT.text
-    assert all(len(t.text) < 1000 for t in TEMPLATES)
+    assert all(len(t.text) < 1000 for t in (DRAFT_INTENT, CREATE_PLAN, IMPLEMENT))
 
 
-def test_replacing_other_text_asks_first(qtbot):
-    dialog = InstructionsDialog("my own words")
-    qtbot.addWidget(dialog)
+def test_test_case_template_describes_the_test_cases_folder():
+    text = TEST_CASE.text
+    assert text.splitlines()[0] == (
+        "# Goal: a test case (all outputs will be written in {language})"
+    )
+    assert text.count("{language}") == 1
+    assert text.count("English") == 1  # only: code, names and run.log are always English
+    for word in (
+        "test-cases",
+        "scripts/",
+        "tests/<test>/test.md",
+        "docs/<test>/documentation.md",
+        "logs/<test>/",
+        "README.md",
+        "run.log",
+        "report.md",
+    ):
+        assert word in text, word
+    assert "mimosa" not in text.lower()
+
+
+def test_test_case_template_fits_the_instructions_limit():
+    longest = max(ALL_LANGUAGES, key=len)
+    for language in ("English", longest):
+        rendered = TEST_CASE.render(language)
+        assert len(rendered.strip()) <= MAX_INSTRUCTIONS_CHARS
+        assert normalize_instructions(rendered) == rendered.strip()  # stored uncut
+
+
+def test_test_case_in_czech_is_stored_and_recognised_again(open_dialog):
+    dialog = open_dialog()
+    dialog.select_language("Czech")
+    assert dialog.select_template("Test Case")
+    stored = dialog.instructions()
+    assert stored.splitlines()[0] == "# Goal: a test case (all outputs will be written in Czech)"
+    assert "{language}" not in stored
+    again = open_dialog(stored)
+    assert again.selected_template() == "Test Case"
+    assert again.selected_language() == "Czech"
+
+
+def test_draft_intent_in_czech_names_the_language_in_the_goal(open_dialog):
+    dialog = open_dialog("")
+    dialog.select_language("Czech")
+    assert dialog.select_template("Draft Intent")
+    first_line = dialog.instructions().splitlines()[0]
+    assert first_line == "# Goal: a formal brief only (all outputs will be written in Czech)"
+    assert first_line.endswith("(all outputs will be written in Czech)")
+
+
+def test_implement_in_czech_keeps_code_in_english_and_the_interface_in_czech(open_dialog):
+    dialog = open_dialog("")
+    dialog.select_language("Czech")
+    assert dialog.select_template("Implement")
+    lines = dialog.instructions().splitlines()
+    assert lines[0] == "# Goal: implement everything"
+    assert "- The default language of a user interface in the output is Czech." in lines
+    assert (
+        "- The implementation language and the language of comments in the source code "
+        "is English." in lines
+    )
+
+
+def test_changing_the_language_of_a_template_rewrites_it_without_asking(open_dialog):
+    dialog = open_dialog("")
+    asked = _record_questions(dialog, {"value": False})
+    assert dialog.select_template("Create Plan")
+    dialog.select_language("Czech")
+    assert dialog.text_edit.toPlainText() == CREATE_PLAN.render("Czech")
+    assert dialog.selected_template() == "Create Plan"
+    dialog.select_language("German")
+    assert dialog.text_edit.toPlainText() == CREATE_PLAN.render("German")
+    assert dialog.selected_template() == "Create Plan"
+    assert asked == []
+
+
+def test_select_language_takes_the_top_item_and_rejects_unknown_names(open_dialog):
+    dialog = open_dialog("")
+    dialog.select_language("German")
+    dialog.select_language("Czech")
+    assert dialog.language_combo.currentIndex() == 1
+    with pytest.raises(ValueError):
+        dialog.select_language("Klingon")
+    with pytest.raises(ValueError):
+        dialog.select_language("")
+
+
+def test_replacing_other_text_asks_first(open_dialog):
+    dialog = open_dialog("my own words")
     answer = {"value": False}
     asked = _record_questions(dialog, answer)
     assert not dialog.select_template("Implement")
@@ -156,29 +359,27 @@ def test_replacing_other_text_asks_first(qtbot):
     assert dialog.template_combo.currentText() == CUSTOM, "No puts the combo back"
     answer["value"] = True
     assert dialog.select_template("Implement")
-    assert dialog.text_edit.toPlainText() == IMPLEMENT.text
+    assert dialog.text_edit.toPlainText() == IMPLEMENT.render("English")
     assert dialog.template_combo.currentText() == "Implement"
     assert dialog.apply_template(IMPLEMENT)  # the same template again: no question
     assert asked == ["Implement", "Implement"]
 
 
-def test_switching_between_templates_asks_and_no_goes_back(qtbot):
-    dialog = InstructionsDialog(DRAFT_INTENT.text)
-    qtbot.addWidget(dialog)
+def test_switching_between_templates_asks_and_no_goes_back(open_dialog):
+    dialog = open_dialog(DRAFT_INTENT.render("English"))
     answer = {"value": False}
     asked = _record_questions(dialog, answer)
     assert not dialog.select_template("Create Plan")
     assert asked == ["Create Plan"]
     assert dialog.template_combo.currentText() == "Draft Intent"
-    assert dialog.text_edit.toPlainText() == DRAFT_INTENT.text
+    assert dialog.text_edit.toPlainText() == DRAFT_INTENT.render("English")
     answer["value"] = True
     assert dialog.select_template("Create Plan")
-    assert dialog.text_edit.toPlainText() == CREATE_PLAN.text
+    assert dialog.text_edit.toPlainText() == CREATE_PLAN.render("English")
 
 
-def test_custom_clears_the_box_after_yes(qtbot):
-    dialog = InstructionsDialog(IMPLEMENT.text)
-    qtbot.addWidget(dialog)
+def test_custom_clears_the_box_after_yes(open_dialog):
+    dialog = open_dialog(IMPLEMENT.render("English"))
     asked = _record_questions(dialog, {"value": True})
     assert dialog.select_template(CUSTOM)
     assert asked == [CUSTOM]
@@ -186,19 +387,17 @@ def test_custom_clears_the_box_after_yes(qtbot):
     assert dialog.template_combo.currentText() == CUSTOM
 
 
-def test_custom_with_no_keeps_the_template_and_its_text(qtbot):
-    dialog = InstructionsDialog(IMPLEMENT.text)
-    qtbot.addWidget(dialog)
+def test_custom_with_no_keeps_the_template_and_its_text(open_dialog):
+    dialog = open_dialog(IMPLEMENT.render("English"))
     asked = _record_questions(dialog, {"value": False})
     assert not dialog.select_template(CUSTOM)
     assert asked == [CUSTOM]
-    assert dialog.text_edit.toPlainText() == IMPLEMENT.text
+    assert dialog.text_edit.toPlainText() == IMPLEMENT.render("English")
     assert dialog.template_combo.currentText() == "Implement"
 
 
-def test_custom_on_an_empty_box_asks_nothing(qtbot):
-    dialog = InstructionsDialog("")
-    qtbot.addWidget(dialog)
+def test_custom_on_an_empty_box_asks_nothing(open_dialog):
+    dialog = open_dialog("")
     asked = _record_questions(dialog, {"value": True})
     dialog._set_combo("Draft Intent")  # a template selected over an empty box
     assert dialog.select_template(CUSTOM)
@@ -207,17 +406,20 @@ def test_custom_on_an_empty_box_asks_nothing(qtbot):
     assert dialog.template_combo.currentText() == CUSTOM
 
 
-def test_editing_a_templates_text_by_hand_switches_to_custom(qtbot):
-    dialog = InstructionsDialog("")
-    qtbot.addWidget(dialog)
+def test_editing_a_templates_text_by_hand_switches_to_custom(open_dialog):
+    dialog = open_dialog("")
     asked = _record_questions(dialog, {"value": True})
+    dialog.select_language("Czech")
     assert dialog.select_template("Draft Intent")
     assert dialog.template_combo.currentText() == "Draft Intent"
     dialog.text_edit.moveCursor(QTextCursor.MoveOperation.End)
     dialog.text_edit.insertPlainText("Also check the logs.\n")
     assert dialog.template_combo.currentText() == CUSTOM
+    assert dialog.selected_language() == "Czech", "the language stays"
     assert asked == []
-    assert dialog.text_edit.toPlainText() == DRAFT_INTENT.text + "Also check the logs.\n"
+    assert dialog.text_edit.toPlainText() == DRAFT_INTENT.render("Czech") + "Also check the logs.\n"
+    dialog.select_language("English")
+    assert dialog.text_edit.toPlainText() == DRAFT_INTENT.render("Czech") + "Also check the logs.\n"
 
 
 # Application icon -------------------------------------------------------------------

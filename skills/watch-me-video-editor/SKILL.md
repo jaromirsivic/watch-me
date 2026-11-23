@@ -107,11 +107,18 @@ timeline with -/+ (the playhead stays in the middle); click a screen track to ch
 what is previewed and exported. The bottom row holds **Auto process**, the green
 **Process** (Ctrl+Enter), **Instructions** (Ctrl+I: the master instructions for you,
 stored in `instructions.txt`, empty by default; a bullet on the button marks stored
-ones; a combo box above the text chooses **Custom**, the default, or one of the templates
-**Draft Intent**, **Create Plan** and **Implement**, which fill the box with a ready-made
-instruction; Custom clears the box and a template replaces its text, each after a
-confirmation when the box holds text, and editing a template by hand switches it to
-Custom), at the right edge. Right-click a recording for **Render Video...**
+ones; above the text, the **Action** combo box chooses **Custom**, the default, or one of
+the templates **Draft Intent**, **Create Plan**, **Implement** and **Test Case** (turn the
+recording into a repeatable test in the project's `test-cases` folder), which fill the box
+with a ready-made instruction, and the **Language** combo box, English by default, the
+language of your outputs: Draft Intent, Create Plan and Test Case name it in their goal,
+Implement makes it the default language of a user interface while code and comments stay English;
+Custom clears the box and a template replaces its text, each after a confirmation when
+the box holds text, changing the language rewrites a selected template, and editing a
+template by hand switches it to Custom; the templates are Markdown files, and the user
+can add their own `*.md` files to `custom-instructions` in the state folder
+(`config path` names it), which appear below the built-in ones at the next opening of
+the dialog), at the right edge. Right-click a recording for **Render Video...**
 (above Archive Video): pick the screen and the MP4 file (`Select File Name`), and the
 cropped range renders in the background with `RENDERING...` on the row; one video at a
 time, **Cancel Rendering** on that row stops it. **Cancel Archiving** (below Archive
