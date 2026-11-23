@@ -23,6 +23,7 @@ BUILT_IN_FILES = (
     "30-implement-immediately.md",
     "40-test-case-step-by-step.md",
     "50-test-case-immediately.md",
+    "60-bug-report.md",
 )
 BUILT_IN_NAMES = [
     "Draft Intent",
@@ -30,6 +31,7 @@ BUILT_IN_NAMES = [
     "Implement Immediately",
     "Test Case Step by Step",
     "Test Case Immediately",
+    "Bug Report",
 ]
 
 
@@ -57,14 +59,14 @@ def test_built_in_files_have_a_front_matter_with_name_and_tooltip(file_name: str
     assert {"name", "tooltip"} <= keys
 
 
-def test_the_built_in_folder_holds_exactly_the_five_templates():
+def test_the_built_in_folder_holds_exactly_the_six_templates():
     assert tuple(sorted(p.name for p in TEMPLATES_DIR.glob("*.md"))) == BUILT_IN_FILES
     assert _names(load_templates(TEMPLATES_DIR)) == BUILT_IN_NAMES
 
 
 def test_built_in_templates_in_file_order_with_the_language_where_it_belongs():
-    draft, plan, implement, step_by_step, immediately = load_templates(TEMPLATES_DIR)
-    assert all(t.tooltip for t in (draft, plan, implement, step_by_step, immediately))
+    draft, plan, implement, step_by_step, immediately, bug = load_templates(TEMPLATES_DIR)
+    assert all(t.tooltip for t in (draft, plan, implement, step_by_step, immediately, bug))
     assert draft.text.splitlines()[0] == (
         "# Goal: a formal brief only (the draft intent will be written in {language})"
     )
@@ -78,6 +80,9 @@ def test_built_in_templates_in_file_order_with_the_language_where_it_belongs():
     assert immediately.text.splitlines()[0] == (
         "# Goal: a test case (the test and the documentation will be written in {language})"
     )
+    assert bug.text.splitlines()[0] == (
+        "# Goal: a bug report (the bug report will be written in {language})"
+    )
     implement_lines = implement.text.splitlines()
     assert implement_lines[0] == "# Goal: implement everything"
     assert "- The default language of a user interface in the output is {language}." in (
@@ -89,12 +94,31 @@ def test_built_in_templates_in_file_order_with_the_language_where_it_belongs():
 def test_both_test_case_templates_share_the_description_in_parts():
     shared = (TEMPLATES_DIR / "parts" / "test-case.md").read_text(encoding="utf-8").strip()
     assert "The language named in the goal applies to every document you write" in shared
-    step_by_step, immediately = load_templates(TEMPLATES_DIR)[3:]
+    step_by_step, immediately = load_templates(TEMPLATES_DIR)[3:5]
     for template in (step_by_step, immediately):
         assert template.text.endswith("\n\n" + shared + "\n")
         assert "{include:" not in template.text
     goal = "# Goal: a test case (the test and the documentation will be written in {language})"
     assert immediately.text == goal + "\n\n" + shared + "\n"
+
+
+def test_the_bug_report_template_files_a_bug_in_the_bugs_folder():
+    bug = load_templates(TEMPLATES_DIR)[5]
+    assert bug.name == "Bug Report"
+    assert not bug.text.startswith("---") and "tooltip:" not in bug.text
+    for expected in (
+        "<A | B | C>",
+        "`bugs`",
+        "screens/01-<short-name>.jpg",
+        "not looked up",
+        "absolute path",
+    ):
+        assert expected in bug.text
+    assert "mimosa" not in bug.text.lower()
+    assert "{include:" not in bug.text
+    czech = bug.render("Czech")
+    assert "{language}" not in czech
+    assert czech.splitlines()[0].endswith("(the bug report will be written in Czech)")
 
 
 # Loading -----------------------------------------------------------------------------

@@ -112,14 +112,22 @@ the templates **Draft Intent**, **Create Plan**, **Implement Immediately**, **Te
 Step by Step** (first write a plan of the test case in the chat - what the test proves,
 what will be tested, preconditions, acceptance, the steps that cannot be fully automated
 and open questions each with a default you use when the user does not answer - wait for
-the user's approval, then create the test case as Test Case Immediately describes it) and
+the user's approval, then create the test case as Test Case Immediately describes it),
 **Test Case Immediately** (turn the recording into a repeatable test in the project's
-`test-cases` folder), which fill the box with a ready-made instruction, and the
-**Language** combo box, English by default, the language of your outputs: Draft Intent
-writes the draft intent in it, Create Plan the plan, Test Case Step by Step the plan, the
-test and the documentation, Test Case Immediately the test and the documentation, and
-Implement Immediately makes it the default language of a user interface while code and
-comments stay English; both drop-down lists show at most 10 rows and scroll;
+`test-cases` folder) and **Bug Report** (turn the recording into a bug report in the
+project's `bugs` folder right away, no plan to approve: one folder per bug named
+`<YYYY-MM-DD>_<short-summary>` with `bugreport.md` - severity A, B or C, environment,
+use case / feature with the URL, specification, summary, steps to reproduce, expected
+and actual result, screenshots, related bugs, notes - and the frames that show the bug
+in a `screens` subfolder; create `bugs` with a `README.md` holding the structure and the
+list of bugs when it is missing, check for duplicates first and end by telling the user
+the absolute path of the report), which fill the box with a ready-made instruction, and
+the **Language** combo box, English by default, the language of your outputs: Draft
+Intent writes the draft intent in it, Create Plan the plan, Test Case Step by Step the
+plan, the test and the documentation, Test Case Immediately the test and the
+documentation, Bug Report the bug report and the `README.md` of `bugs`, and Implement
+Immediately makes it the default language of a user interface while code and comments
+stay English; both drop-down lists show at most 10 rows and scroll;
 Custom clears the box and a template replaces its text, each after a confirmation when
 the box holds text, changing the language rewrites a selected template, and editing a
 template by hand switches it to Custom; the templates are Markdown files, and the user

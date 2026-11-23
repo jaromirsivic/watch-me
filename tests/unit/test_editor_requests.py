@@ -142,6 +142,7 @@ def test_combo_lists_custom_and_the_built_in_templates_with_tooltips(open_dialog
         "Implement Immediately",
         "Test Case Step by Step",
         "Test Case Immediately",
+        "Bug Report",
     ]
     combo = dialog.template_combo
     tooltips = [combo.itemData(i, Qt.ItemDataRole.ToolTipRole) for i in range(combo.count())]
@@ -159,6 +160,7 @@ def test_a_file_added_to_the_custom_folder_shows_up_at_the_next_open(open_dialog
         "Implement Immediately",
         "Test Case Step by Step",
         "Test Case Immediately",
+        "Bug Report",
     ]
     custom_dir.mkdir()
     (custom_dir / "50-code-review.md").write_text(
@@ -172,6 +174,7 @@ def test_a_file_added_to_the_custom_folder_shows_up_at_the_next_open(open_dialog
         "Implement Immediately",
         "Test Case Step by Step",
         "Test Case Immediately",
+        "Bug Report",
         "Code Review",
     ]
     second.select_language("Czech")
